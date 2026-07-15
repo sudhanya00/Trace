@@ -1,0 +1,35 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native build output
+*.apk
+*.aab
+*.ipa
+android/
+ios/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# EAS
+credentials.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Scratch
+*.log

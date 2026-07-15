@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "TRACE GPS Prototype",
+    "slug": "trace-gps-prototype",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0D0E",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.trace.gpsprototype",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.trace.gpsprototype",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0D0E",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true,
+          "locationWhenInUsePermission": "TRACE records your ride to measure GPS quality on real roads.",
+          "locationAlwaysAndWhenInUsePermission": "TRACE records your ride in the background — screen off, no signal needed — to measure GPS quality on real roads."
+        }
+      ],
+      "expo-sqlite",
+      "expo-sharing"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1f2b8ea8-bc32-45fd-b5c1-bd3d7581da8c"
+      }
+    },
+    "owner": "sudhanyak"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($w = Get-Command pandoc -ErrorAction SilentlyContinue; if \\($w\\) { $w.Source } else { \"not found\" })",
+      "PowerShell(python --version)",
+      "PowerShell(python -c \"import docx; print\\('python-docx ok'\\)\")"
+    ]
+  }
+}
