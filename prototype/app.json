@@ -45,7 +45,8 @@
         }
       ],
       "expo-sqlite",
-      "expo-sharing"
+      "expo-sharing",
+      "@sentry/react-native"
     ],
     "extra": {
       "eas": {

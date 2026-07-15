@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@sentry/react-native": "~7.11.0",
     "expo": "~57.0.4",
     "expo-battery": "~57.0.0",
     "expo-device": "~57.0.0",

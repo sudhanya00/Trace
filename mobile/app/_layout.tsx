@@ -19,7 +19,8 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { PostHogProvider } from 'posthog-react-native';
+import { ReactNode, useEffect } from 'react';
 import { View } from 'react-native';
 
 import { color } from '../src/theme/tokens';
@@ -27,6 +28,18 @@ import { color } from '../src/theme/tokens';
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
 if (sentryDsn) {
   Sentry.init({ dsn: sentryDsn, sendDefaultPii: false });
+}
+
+const posthogKey = process.env.EXPO_PUBLIC_POSTHOG_API_KEY;
+const posthogHost = process.env.EXPO_PUBLIC_POSTHOG_HOST;
+
+function Analytics({ children }: { children: ReactNode }) {
+  if (!posthogKey) return children;
+  return (
+    <PostHogProvider apiKey={posthogKey} options={{ host: posthogHost }} autocapture={false}>
+      {children}
+    </PostHogProvider>
+  );
 }
 
 SplashScreen.preventAutoHideAsync();
@@ -52,15 +65,17 @@ function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: color.void }}>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: color.void },
-        }}
-      />
-    </View>
+    <Analytics>
+      <View style={{ flex: 1, backgroundColor: color.void }}>
+        <StatusBar style="light" />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: color.void },
+          }}
+        />
+      </View>
+    </Analytics>
   );
 }
 
