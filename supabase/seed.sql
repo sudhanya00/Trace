@@ -7,18 +7,29 @@
 --   veer  (private) — exists to prove private data stays invisible (§12 tests).
 -- Passwords are 'password123' for both.
 
+-- GoTrue scans several token columns as non-nullable strings — they must be
+-- '' rather than NULL or password sign-in 500s with "error finding user".
 insert into auth.users
   (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
-   raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+   raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+   confirmation_token, recovery_token, email_change, email_change_token_new, email_change_token_current)
 values
   ('00000000-0000-4000-a000-000000000001', '00000000-0000-0000-0000-000000000000',
    'authenticated', 'authenticated', 'asha@test.local',
    crypt('password123', gen_salt('bf')), now(),
-   '{"provider":"email","providers":["email"]}', '{}', now(), now()),
+   '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', '', ''),
   ('00000000-0000-4000-a000-000000000002', '00000000-0000-0000-0000-000000000000',
    'authenticated', 'authenticated', 'veer@test.local',
    crypt('password123', gen_salt('bf')), now(),
-   '{"provider":"email","providers":["email"]}', '{}', now(), now());
+   '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', '', '');
+
+-- Belt and braces for identities (some GoTrue versions require the row).
+insert into auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+values
+  ('00000000-0000-4000-a000-000000000001', '00000000-0000-4000-a000-000000000001',
+   '{"sub":"00000000-0000-4000-a000-000000000001","email":"asha@test.local"}', 'email', now(), now(), now()),
+  ('00000000-0000-4000-a000-000000000002', '00000000-0000-4000-a000-000000000002',
+   '{"sub":"00000000-0000-4000-a000-000000000002","email":"veer@test.local"}', 'email', now(), now(), now());
 
 insert into profiles (id, handle, display_name, visibility, home_region) values
   ('00000000-0000-4000-a000-000000000001', 'asha', 'Asha', 'public', 'Himachal'),

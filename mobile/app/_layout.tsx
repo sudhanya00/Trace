@@ -16,14 +16,16 @@ import {
 } from '@expo-google-fonts/jetbrains-mono';
 import * as Sentry from '@sentry/react-native';
 import { useFonts } from 'expo-font';
+import * as Network from 'expo-network';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { PostHogProvider } from 'posthog-react-native';
 import { ReactNode, useEffect } from 'react';
-import { View } from 'react-native';
+import { AppState, View } from 'react-native';
 
 import { SessionProvider } from '../src/lib/auth';
+import { syncPendingRides } from '../src/lib/sync';
 import { color } from '../src/theme/tokens';
 
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
@@ -62,6 +64,22 @@ function RootLayout() {
   useEffect(() => {
     if (fontsLoaded) SplashScreen.hideAsync();
   }, [fontsLoaded]);
+
+  // §4 sync triggers: app foreground + connectivity regained
+  // (ride-stop triggers it directly).
+  useEffect(() => {
+    syncPendingRides();
+    const appSub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') syncPendingRides();
+    });
+    const netSub = Network.addNetworkStateListener(({ isInternetReachable }) => {
+      if (isInternetReachable) syncPendingRides();
+    });
+    return () => {
+      appSub.remove();
+      netSub.remove();
+    };
+  }, []);
 
   if (!fontsLoaded) return null;
 
