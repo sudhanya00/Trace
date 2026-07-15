@@ -1,0 +1,83 @@
+import { router } from 'expo-router';
+import { useState } from 'react';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
+
+import { PushButton } from '../../src/components/PushButton';
+import { Field, MonoLabel } from '../../src/components/ui';
+import { useAuth } from '../../src/lib/auth';
+import { createProfile } from '../../src/lib/db';
+import { color, font, layout } from '../../src/theme/tokens';
+
+const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
+
+export default function Handle() {
+  const { session, refreshProfile } = useAuth();
+  const [handle, setHandle] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const cleaned = handle.trim().toLowerCase();
+  const valid = HANDLE_RE.test(cleaned);
+
+  const submit = async () => {
+    if (!session || !valid) return;
+    setBusy(true);
+    try {
+      await createProfile(session.user.id, cleaned);
+      await refreshProfile();
+      router.replace('/onboarding/bike');
+    } catch (e) {
+      const msg = (e as { code?: string }).code === '23505'
+        ? 'That handle is taken — try another.'
+        : (e as Error).message;
+      Alert.alert('Could not save handle', msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: color.void }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView contentContainerStyle={st.scroll} keyboardShouldPersistTaps="handled">
+        <MonoLabel>Step 1 of 2</MonoLabel>
+        <Text style={st.h1}>Pick your handle</Text>
+        <Text style={st.sub}>How other riders will know you. Letters, numbers, underscores.</Text>
+
+        <Field
+          label="Handle"
+          value={handle}
+          onChangeText={setHandle}
+          placeholder="ridge_runner"
+          style={{ marginTop: 28 }}
+        />
+
+        <PushButton
+          label="Continue"
+          onPress={submit}
+          disabled={busy || !valid}
+          style={{ marginTop: 30 }}
+        />
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const st = StyleSheet.create({
+  scroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: layout.screenPadding,
+    paddingVertical: 60,
+  },
+  h1: {
+    fontFamily: font.display,
+    fontSize: 38,
+    color: color.white,
+    textTransform: 'uppercase',
+    marginTop: 8,
+    lineHeight: 40,
+  },
+  sub: { fontFamily: font.body, color: color.steel, fontSize: 13, marginTop: 10, lineHeight: 19 },
+});

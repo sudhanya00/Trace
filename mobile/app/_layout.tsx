@@ -23,6 +23,7 @@ import { PostHogProvider } from 'posthog-react-native';
 import { ReactNode, useEffect } from 'react';
 import { View } from 'react-native';
 
+import { SessionProvider } from '../src/lib/auth';
 import { color } from '../src/theme/tokens';
 
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
@@ -66,15 +67,17 @@ function RootLayout() {
 
   return (
     <Analytics>
-      <View style={{ flex: 1, backgroundColor: color.void }}>
-        <StatusBar style="light" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: color.void },
-          }}
-        />
-      </View>
+      <SessionProvider>
+        <View style={{ flex: 1, backgroundColor: color.void }}>
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: color.void },
+            }}
+          />
+        </View>
+      </SessionProvider>
     </Analytics>
   );
 }

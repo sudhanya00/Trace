@@ -1,35 +1,42 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 
-import { color, font, layout, monoLabel } from '../src/theme/tokens';
+import { useAuth } from '../src/lib/auth';
+import { listBikes } from '../src/lib/db';
+import { color } from '../src/theme/tokens';
 
 /**
- * Boot placeholder — replaced by the auth gate (§9) in the next build step.
- * Exists so the shell runs end-to-end: fonts, tokens, router, splash.
+ * Entry gate. Order matters (§7): a rider always has a garage before anything
+ * asks for permissions — signed in → handle → first bike → the app.
  */
-export default function Index() {
+export default function Gate() {
+  const { session, profile, loading } = useAuth();
+
+  useFocusEffect(
+    useCallback(() => {
+      if (loading) return;
+      let alive = true;
+      (async () => {
+        if (!session) {
+          router.replace('/auth');
+        } else if (!profile) {
+          router.replace('/onboarding/handle');
+        } else {
+          const bikes = await listBikes();
+          if (!alive) return;
+          router.replace(bikes.length === 0 ? '/onboarding/bike' : '/(tabs)/garage');
+        }
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [session, profile, loading])
+  );
+
   return (
-    <View style={st.root}>
-      <Text style={st.eyebrow}>RIDE. TRACE. BELONG.</Text>
-      <Text style={st.word}>TRACE</Text>
+    <View style={{ flex: 1, backgroundColor: color.void, alignItems: 'center', justifyContent: 'center' }}>
+      <ActivityIndicator color={color.steel} />
     </View>
   );
 }
-
-const st = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: color.void,
-    alignItems: 'flex-start',
-    justifyContent: 'flex-end',
-    padding: layout.screenPadding,
-    paddingBottom: 64,
-  },
-  eyebrow: { ...monoLabel, marginBottom: 8 },
-  word: {
-    fontFamily: font.display,
-    fontSize: 64,
-    color: color.white,
-    letterSpacing: 2,
-    lineHeight: 64,
-  },
-});
