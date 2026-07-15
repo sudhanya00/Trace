@@ -43,6 +43,7 @@
         }
       ],
       "expo-sqlite",
+      "expo-notifications",
       "expo-font",
       [
         "expo-splash-screen",
@@ -52,8 +53,7 @@
           "imageWidth": 160
         }
       ],
-      "@sentry/react-native",
-      "expo-sqlite"
+      "@sentry/react-native"
     ],
     "experiments": {
       "typedRoutes": true

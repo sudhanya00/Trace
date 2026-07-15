@@ -1,9 +1,19 @@
 import * as Crypto from 'expo-crypto';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
 
 import { metersBetween } from './geo';
 import { ldb, LocalRide, recordingRide, rideState } from './localdb';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+});
 
 export const RECORDING_TASK = 'trace-ride-recording';
 
@@ -25,7 +35,12 @@ const GAP_DISTANCE_M = 500;
 const STATIONARY_RADIUS_M = 100;
 
 export const AUTO_PAUSE_MS = 90_000; // display state: no movement > 90s
-export const AUTO_STOP_PROMPT_MS = 15 * 60_000; // paused this long → prompt
+/**
+ * Paused this long → one "still riding?" notification. Never an auto-stop:
+ * bike breaks run long (user decision 2026-07-15, overriding §5's
+ * "stop if unanswered") — an unanswered prompt keeps recording.
+ */
+export const AUTO_STOP_PROMPT_MS = 15 * 60_000;
 
 /**
  * Continuous 5s fixes (distanceInterval 0) instead of the raw 25m hardware
@@ -60,6 +75,8 @@ TaskManager.defineTask(RECORDING_TASK, async ({ data, error }) => {
 
   ingest(ride, locations);
 
+  await maybePromptStillRiding(ride);
+
   // §6: the notification is the only visible surface for 8 hours — live stats.
   const now = Date.now();
   if (now - lastNotificationUpdate > 30_000) {
@@ -79,6 +96,24 @@ TaskManager.defineTask(RECORDING_TASK, async ({ data, error }) => {
     }
   }
 });
+
+/** One notification per pause episode once it crosses the threshold. The fix
+ *  stream keeps flowing while stationary (time-based updates), so this runs
+ *  even with the screen off in a tank bag. */
+async function maybePromptStillRiding(ride: LocalRide) {
+  const s = rideState(ride.id);
+  if (!s || s.last_move_ts === 0 || s.pause_prompted) return;
+  const pausedMs = Date.now() - s.last_move_ts;
+  if (pausedMs < AUTO_STOP_PROMPT_MS) return;
+  ldb.runSync('UPDATE local_ride_state SET pause_prompted = 1 WHERE ride_id = ?', [ride.id]);
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: 'Still riding?',
+      body: `Paused ${Math.round(pausedMs / 60_000)} min — the ride is still recording. Open TRACE to finish it.`,
+    },
+    trigger: null,
+  }).catch(() => {});
+}
 
 /** Write a batch of fixes: accuracy filter → distance filter → gap rule. */
 export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
@@ -100,9 +135,9 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
         );
         ldb.runSync(
           `INSERT OR REPLACE INTO local_ride_state
-             (ride_id, last_seq, segment_seq, last_lat, last_lng, last_ts, last_altitude, last_accuracy, distance_m, gap_count, gap_duration_s)
-           VALUES (?, 0, 0, ?, ?, ?, ?, ?, 0, 0, 0)`,
-          [ride.id, lat, lng, ts, altitude ?? null, accuracy ?? null]
+             (ride_id, last_seq, segment_seq, last_lat, last_lng, last_ts, last_altitude, last_accuracy, distance_m, gap_count, gap_duration_s, last_move_ts, pause_prompted)
+           VALUES (?, 0, 0, ?, ?, ?, ?, ?, 0, 0, 0, ?, 0)`,
+          [ride.id, lat, lng, ts, altitude ?? null, accuracy ?? null, ts]
         );
         s = rideState(ride.id)!;
         continue;
@@ -143,12 +178,14 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
         `UPDATE local_ride_state SET
            last_seq = ?, segment_seq = ?, last_lat = ?, last_lng = ?, last_ts = ?,
            last_altitude = ?, last_accuracy = ?, distance_m = distance_m + ?,
-           gap_count = gap_count + ?, gap_duration_s = gap_duration_s + ?
+           gap_count = gap_count + ?, gap_duration_s = gap_duration_s + ?,
+           last_move_ts = ?, pause_prompted = 0
          WHERE ride_id = ?`,
         [
           seq, segment, lat, lng, ts,
           altitude ?? null, accuracy ?? null, addedM,
           isGap ? 1 : 0, isGap ? Math.round(dt / 1000) : 0,
+          ts,
           ride.id,
         ]
       );

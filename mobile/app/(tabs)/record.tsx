@@ -133,10 +133,13 @@ export default function Record() {
     syncPendingRides();
   };
 
-  // Derived display state
+  // Derived display state. Fixes flow continuously (time-based), so GPS
+  // status reads fix freshness while pause reads MOVEMENT freshness.
   const distanceKm = state ? state.distance_m / 1000 : 0;
   const lastFixAge = state ? now - state.last_ts : Infinity;
-  const paused = phase.kind === 'recording' && state != null && lastFixAge > AUTO_PAUSE_MS;
+  const lastMoveAge = state && state.last_move_ts > 0 ? now - state.last_move_ts : 0;
+  const paused =
+    phase.kind === 'recording' && state != null && lastFixAge < 30_000 && lastMoveAge > AUTO_PAUSE_MS;
   const gpsGood = lastFixAge < 20_000 && (state?.last_accuracy ?? 99) < 30;
   const gpsWeak = !gpsGood && lastFixAge < 60_000;
   const elapsed = phase.kind === 'recording' ? fmtElapsed(now - phase.ride.started_at) : null;

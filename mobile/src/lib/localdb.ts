@@ -48,9 +48,22 @@ ldb.execSync(`
     last_accuracy REAL,
     distance_m REAL NOT NULL DEFAULT 0,
     gap_count INTEGER NOT NULL DEFAULT 0,
-    gap_duration_s INTEGER NOT NULL DEFAULT 0
+    gap_duration_s INTEGER NOT NULL DEFAULT 0,
+    last_move_ts INTEGER NOT NULL DEFAULT 0,
+    pause_prompted INTEGER NOT NULL DEFAULT 0
   );
 `);
+
+// Dev-phase column migration for databases created before these columns existed.
+{
+  const cols = ldb.getAllSync<{ name: string }>('PRAGMA table_info(local_ride_state)');
+  if (!cols.some((c) => c.name === 'last_move_ts')) {
+    ldb.execSync(`
+      ALTER TABLE local_ride_state ADD COLUMN last_move_ts INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE local_ride_state ADD COLUMN pause_prompted INTEGER NOT NULL DEFAULT 0;
+    `);
+  }
+}
 
 export type LocalRide = {
   id: string;
@@ -86,6 +99,10 @@ export type RideState = {
   distance_m: number;
   gap_count: number;
   gap_duration_s: number;
+  /** Last fix that represented actual movement — pause detection keys off this. */
+  last_move_ts: number;
+  /** 1 once the still-riding notification fired for the current pause. */
+  pause_prompted: number;
 };
 
 export function recordingRide(): LocalRide | null {
