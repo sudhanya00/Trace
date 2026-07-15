@@ -1,34 +1,36 @@
 {
-  "cli": {
-    "appVersionSource": "remote"
-  },
-  "build": {
-    "preview": {
-      "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_SUPABASE_URL": "https://ynhmoihjqzrhgqpjgfmr.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_w7DbESRx-VFXlhQMrTrugw_dGfwbHBO",
-        "EXPO_PUBLIC_SENTRY_DSN": "https://8e6e7a40b295af11683f1000f7d0aa7c@o4511739055177728.ingest.de.sentry.io/4511739059109968",
-        "EXPO_PUBLIC_POSTHOG_API_KEY": "phc_ouq6tHr5Dro48JkCC4MtF9CS2wjN5PSm7xSkfYexEcPs",
-        "EXPO_PUBLIC_POSTHOG_HOST": "https://eu.i.posthog.com"
-      }
-    },
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_SUPABASE_URL": "https://ynhmoihjqzrhgqpjgfmr.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_w7DbESRx-VFXlhQMrTrugw_dGfwbHBO",
-        "EXPO_PUBLIC_SENTRY_DSN": "https://8e6e7a40b295af11683f1000f7d0aa7c@o4511739055177728.ingest.de.sentry.io/4511739059109968",
-        "EXPO_PUBLIC_POSTHOG_API_KEY": "phc_ouq6tHr5Dro48JkCC4MtF9CS2wjN5PSm7xSkfYexEcPs",
-        "EXPO_PUBLIC_POSTHOG_HOST": "https://eu.i.posthog.com"
-      }
-    }
-  }
+    "cli":  {
+                "appVersionSource":  "remote"
+            },
+    "build":  {
+                  "preview":  {
+                                  "distribution":  "internal",
+                                  "android":  {
+                                                  "buildType":  "apk"
+                                              },
+                                  "env":  {
+                                              "EXPO_PUBLIC_SUPABASE_URL":  "https://ynhmoihjqzrhgqpjgfmr.supabase.co",
+                                              "EXPO_PUBLIC_SUPABASE_ANON_KEY":  "sb_publishable_w7DbESRx-VFXlhQMrTrugw_dGfwbHBO",
+                                              "EXPO_PUBLIC_SENTRY_DSN":  "https://8e6e7a40b295af11683f1000f7d0aa7c@o4511739055177728.ingest.de.sentry.io/4511739059109968",
+                                              "EXPO_PUBLIC_POSTHOG_API_KEY":  "phc_ouq6tHr5Dro48JkCC4MtF9CS2wjN5PSm7xSkfYexEcPs",
+                                              "EXPO_PUBLIC_POSTHOG_HOST":  "https://eu.i.posthog.com",
+                                              "SENTRY_DISABLE_AUTO_UPLOAD":  "true"
+                                          }
+                              },
+                  "development":  {
+                                      "developmentClient":  true,
+                                      "distribution":  "internal",
+                                      "android":  {
+                                                      "buildType":  "apk"
+                                                  },
+                                      "env":  {
+                                                  "EXPO_PUBLIC_SUPABASE_URL":  "https://ynhmoihjqzrhgqpjgfmr.supabase.co",
+                                                  "EXPO_PUBLIC_SUPABASE_ANON_KEY":  "sb_publishable_w7DbESRx-VFXlhQMrTrugw_dGfwbHBO",
+                                                  "EXPO_PUBLIC_SENTRY_DSN":  "https://8e6e7a40b295af11683f1000f7d0aa7c@o4511739055177728.ingest.de.sentry.io/4511739059109968",
+                                                  "EXPO_PUBLIC_POSTHOG_API_KEY":  "phc_ouq6tHr5Dro48JkCC4MtF9CS2wjN5PSm7xSkfYexEcPs",
+                                                  "EXPO_PUBLIC_POSTHOG_HOST":  "https://eu.i.posthog.com",
+                                                  "SENTRY_DISABLE_AUTO_UPLOAD":  "true"
+                                              }
+                                  }
+              }
 }
