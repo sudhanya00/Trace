@@ -9,6 +9,7 @@ A community and exploration platform for motorcycle riders — built around the 
 | Path | What |
 |---|---|
 | `prototype/` | Task 1 — throwaway background-GPS calibration app (§2 of the spec). Records a track to local SQLite with a foreground service. Ridden for real to measure gap profile, battery drain, and OS kill behaviour. Not production code. |
+| `supabase/` | Database: migrations (PostGIS schema, RLS, privacy-zone clipping, server-side distance, odometer sync) and a local-dev seed. Apply with `npx supabase db push`; local stack via `npx supabase start`. |
 
 ## The three rules
 
