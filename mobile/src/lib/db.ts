@@ -415,6 +415,69 @@ export async function listRiderRoutes(profileId: string): Promise<Route[]> {
   return data ?? [];
 }
 
+export type ThreadComment = {
+  id: string;
+  profile_id: string;
+  handle: string;
+  display_name: string | null;
+  body: string;
+  rode_it: boolean;
+  created_at: string;
+};
+
+export type ConditionReport = {
+  id: string;
+  profile_id: string;
+  handle: string;
+  status: 'clear' | 'caution' | 'blocked';
+  note: string | null;
+  rode_it: boolean;
+  created_at: string;
+};
+
+export async function routeThread(routeId: string): Promise<ThreadComment[]> {
+  const { data, error } = await supabase.rpc('route_thread', { p_route_id: routeId });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addRouteComment(userId: string, routeId: string, body: string): Promise<void> {
+  const { error } = await supabase
+    .from('route_comments')
+    .insert({ route_id: routeId, profile_id: userId, body });
+  if (error) throw error;
+}
+
+export async function deleteRouteComment(id: string): Promise<void> {
+  const { error } = await supabase.from('route_comments').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function flagComment(userId: string, commentId: string): Promise<void> {
+  const { error } = await supabase
+    .from('content_reports')
+    .insert({ reporter_id: userId, comment_id: commentId });
+  if (error) throw error;
+}
+
+export async function routeConditions(routeId: string): Promise<ConditionReport[]> {
+  const { data, error } = await supabase.rpc('route_conditions', { p_route_id: routeId });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addConditionReport(
+  userId: string,
+  routeId: string,
+  status: ConditionReport['status'],
+  note: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from('condition_reports')
+    .insert({ route_id: routeId, profile_id: userId, status, note });
+  if (error) throw error;
+}
+
 /** §12b: one-tap report — the feedback loop that fixes GPS. */
 export async function submitRecordingReport(
   userId: string,

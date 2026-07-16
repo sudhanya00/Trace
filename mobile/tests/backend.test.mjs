@@ -211,6 +211,52 @@ describe('follows (Phase 02 policy swap)', () => {
   });
 });
 
+describe('route threads and condition reports', () => {
+  after(async () => {
+    await asha.from('route_comments').delete().like('body', 'test:%');
+    await veer.from('route_comments').delete().like('body', 'test:%');
+    await asha.from('condition_reports').delete().eq('route_id', ASHA_ROUTE);
+  });
+
+  it('the author of the source ride gets the rode-it badge; a distant rider does not', async () => {
+    const mine = await asha
+      .from('route_comments')
+      .insert({ route_id: ASHA_ROUTE, profile_id: ashaId, body: 'test: my own road', rode_it: false })
+      .select('rode_it')
+      .single();
+    assert.equal(mine.error, null, `insert failed: ${JSON.stringify(mine.error)}`);
+    assert.equal(mine.data.rode_it, true, 'asha rode the route her ride created');
+
+    const theirs = await veer
+      .from('route_comments')
+      .insert({ route_id: ASHA_ROUTE, profile_id: veerId, body: 'test: never been', rode_it: true })
+      .select('rode_it')
+      .single();
+    assert.equal(theirs.data.rode_it, false, 'trigger overrides veer’s claimed badge — his tracks are in J&K');
+  });
+
+  it('threads inherit route visibility and carry handles', async () => {
+    const { data } = await anon.rpc('route_thread', { p_route_id: ASHA_ROUTE });
+    assert.ok(data.length >= 2, 'anon reads the public route’s thread');
+    assert.ok(data.every((c) => typeof c.handle === 'string'));
+  });
+
+  it('condition reports post and surface newest-first', async () => {
+    const { error } = await asha
+      .from('condition_reports')
+      .insert({ route_id: ASHA_ROUTE, profile_id: ashaId, status: 'caution', note: 'test: loose gravel after the bridge' });
+    assert.equal(error, null);
+    const { data } = await anon.rpc('route_conditions', { p_route_id: ASHA_ROUTE });
+    assert.equal(data[0].status, 'caution');
+    assert.equal(data[0].rode_it, true);
+  });
+
+  it('you delete your own comments, never someone else’s', async () => {
+    const del = await veer.from('route_comments').delete().eq('profile_id', ashaId).select();
+    assert.equal(del.data.length, 0);
+  });
+});
+
 describe('server-side distance and odometer', () => {
   it('distance sums segments only — the gap span is never counted', async () => {
     // Two ~1.1km meridian segments with a ~1.1km hole between them.
