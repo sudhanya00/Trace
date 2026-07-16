@@ -68,10 +68,17 @@ export async function updateProfile(
   return data;
 }
 
-export async function listBikes(): Promise<Bike[]> {
+/**
+ * The caller's OWN bikes. RLS governs visibility (a public rider's bikes are
+ * legitimately readable by others — that's rider profiles), so ownership must
+ * be an explicit filter, never an assumption. Garage/record/manual-entry all
+ * mean "my garage".
+ */
+export async function listBikes(userId: string): Promise<Bike[]> {
   const { data, error } = await supabase
     .from('bikes')
     .select('*')
+    .eq('profile_id', userId)
     .order('created_at', { ascending: true });
   if (error) throw error;
   return data ?? [];
@@ -107,9 +114,12 @@ export async function updateBike(id: string, patch: Partial<BikeInput & { is_act
   return data;
 }
 
-/** Ride counts per bike, one round trip. Fine at Phase 01 volumes. */
-export async function rideCountsByBike(): Promise<Map<string, number>> {
-  const { data, error } = await supabase.from('rides').select('bike_id');
+/** Ride counts per OWN bike, one round trip. Fine at Phase 01 volumes. */
+export async function rideCountsByBike(userId: string): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('rides')
+    .select('bike_id')
+    .eq('profile_id', userId);
   if (error) throw error;
   const counts = new Map<string, number>();
   for (const r of data ?? []) {

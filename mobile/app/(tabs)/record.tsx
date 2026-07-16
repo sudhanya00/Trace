@@ -21,6 +21,7 @@ import { Odometer } from '../../src/components/Odometer';
 import { PushButton } from '../../src/components/PushButton';
 import { TrackBed } from '../../src/components/TrackBed';
 import { MonoLabel } from '../../src/components/ui';
+import { useAuth } from '../../src/lib/auth';
 import { Bike, listBikes } from '../../src/lib/db';
 import {
   LocalRide,
@@ -54,6 +55,7 @@ type Phase =
   | { kind: 'interrupted'; ride: LocalRide };
 
 export default function Record() {
+  const { session } = useAuth();
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const [state, setState] = useState<RideState | null>(null);
   const [trackPoints, setTrackPoints] = useState<
@@ -91,7 +93,7 @@ export default function Record() {
     useCallback(() => {
       refresh();
       setSweepKey((k) => k + 1); // ignition sweep on every visit to the dial
-      const bikesLoad = listBikes()
+      const bikesLoad = (session ? listBikes(session.user.id) : Promise.resolve([]))
         .then((b) => {
           const active = b.filter((x) => x.is_active);
           setBikes(active);
@@ -105,7 +107,7 @@ export default function Record() {
         clearInterval(tick);
         void bikesLoad;
       };
-    }, [refresh])
+    }, [refresh, session])
   );
 
   /**

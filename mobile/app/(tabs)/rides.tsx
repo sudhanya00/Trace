@@ -72,9 +72,11 @@ export default function Rides() {
 
       load();
       syncPendingRides().finally(load);
-      listBikes()
-        .then((bs) => alive && setBikes(new Map(bs.map((b) => [b.id, b]))))
-        .catch(() => {});
+      if (session) {
+        listBikes(session.user.id)
+          .then((bs) => alive && setBikes(new Map(bs.map((b) => [b.id, b]))))
+          .catch(() => {});
+      }
       const t = setInterval(load, 4000);
       return () => {
         alive = false;

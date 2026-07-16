@@ -23,7 +23,7 @@ export default function Gate() {
         } else if (!profile) {
           router.replace('/onboarding/handle');
         } else {
-          const bikes = await listBikes();
+          const bikes = await listBikes(session.user.id);
           if (!alive) return;
           router.replace(bikes.length === 0 ? '/onboarding/bike' : '/(tabs)/garage');
         }

@@ -23,7 +23,8 @@ export default function ManualRide() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    listBikes()
+    if (!session) return;
+    listBikes(session.user.id)
       .then((b) => {
         const active = b.filter((x) => x.is_active);
         setBikes(active);

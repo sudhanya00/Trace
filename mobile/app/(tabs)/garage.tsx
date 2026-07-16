@@ -11,14 +11,15 @@ import { color, font, layout } from '../../src/theme/tokens';
 const fmtKm = (n: number) => Math.round(n).toLocaleString('en-IN');
 
 export default function Garage() {
-  const { profile } = useAuth();
+  const { session, profile } = useAuth();
   const [bikes, setBikes] = useState<Bike[]>([]);
   const [rideCounts, setRideCounts] = useState<Map<string, number>>(new Map());
 
   useFocusEffect(
     useCallback(() => {
+      if (!session) return;
       let alive = true;
-      Promise.all([listBikes(), rideCountsByBike()])
+      Promise.all([listBikes(session.user.id), rideCountsByBike(session.user.id)])
         .then(([b, c]) => {
           if (alive) {
             setBikes(b);
@@ -29,7 +30,7 @@ export default function Garage() {
       return () => {
         alive = false;
       };
-    }, [])
+    }, [session])
   );
 
   const activeBikes = bikes.filter((b) => b.is_active);
