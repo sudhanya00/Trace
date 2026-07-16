@@ -17,22 +17,10 @@ Notifications.setNotificationHandler({
 
 export const RECORDING_TASK = 'trace-ride-recording';
 
-/**
- * §5 tuning values. Task 1 calibration was skipped by decision, so these are
- * the spec's starting numbers — the §12b feedback loop (gap metrics in
- * PostHog, report-bad-recording) is what tunes them now.
- */
-const ACCURACY_CUTOFF_M = 50; // drop noisier fixes before writing
-const MIN_WRITE_DISTANCE_M = 25; // software distance filter
-const GAP_TIME_MS = 60_000;
-const GAP_DISTANCE_M = 500;
-/**
- * A >60s silence at (roughly) the same spot is a stop — a chai break, a photo
- * — not a dropout. No distance was covered, nothing is fabricated by keeping
- * the segment. A >60s silence that ENDS somewhere else is a real gap: the
- * rider moved and we don't know the path. Segments split only on real gaps.
- */
-const STATIONARY_RADIUS_M = 100;
+// §5 tuning values and the fix classifier live in gapRules.ts (pure, tested).
+// Task 1 calibration was skipped by decision, so these are the spec's starting
+// numbers — the §12b feedback loop tunes them from tester telemetry.
+import { classifyFix } from './gapRules';
 
 export const AUTO_PAUSE_MS = 90_000; // display state: no movement > 90s
 /**
@@ -125,9 +113,9 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
     for (const loc of sorted) {
       const { latitude: lat, longitude: lng, accuracy, altitude, speed } = loc.coords;
       const ts = loc.timestamp;
-      if (accuracy != null && accuracy > ACCURACY_CUTOFF_M) continue; // GPS noise (§5)
 
       if (!s) {
+        if (accuracy != null && accuracy > 50) continue; // no anchor from noise
         ldb.runSync(
           `INSERT OR REPLACE INTO local_points (ride_id, seq, segment_seq, ts, lat, lng, accuracy, altitude, speed)
            VALUES (?, 0, 0, ?, ?, ?, ?, ?, ?)`,
@@ -147,10 +135,13 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
 
       const d = metersBetween(s.last_lat, s.last_lng, lat, lng);
       const dt = ts - s.last_ts;
+      const cls = classifyFix({ accuracy: accuracy ?? null, distanceM: d, dtMs: dt });
+
+      if (cls.kind === 'drop') continue; // GPS noise (§5)
 
       // Always keep freshness current, even for fixes we don't write —
       // auto-pause detection and GPS status read these.
-      if (d < MIN_WRITE_DISTANCE_M) {
+      if (cls.kind === 'skip') {
         ldb.runSync(
           'UPDATE local_ride_state SET last_ts = ?, last_altitude = ?, last_accuracy = ? WHERE ride_id = ?',
           [ts, altitude ?? s.last_altitude, accuracy ?? null, ride.id]
@@ -160,9 +151,7 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
       }
 
       // §5: never interpolate across a dropout. A dropout ends a segment.
-      const movedFar = d > GAP_DISTANCE_M;
-      const silentAndElsewhere = dt > GAP_TIME_MS && d > STATIONARY_RADIUS_M;
-      const isGap = movedFar || silentAndElsewhere;
+      const isGap = cls.gap;
 
       const seq = s.last_seq + 1;
       const segment = isGap ? s.segment_seq + 1 : s.segment_seq;

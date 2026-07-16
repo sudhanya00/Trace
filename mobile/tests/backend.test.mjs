@@ -1,0 +1,235 @@
+/**
+ * §12 backend test pass. Runs against the LOCAL Supabase stack:
+ *
+ *   npx supabase start   (from repo root)
+ *   npx supabase db reset
+ *   npm test             (from mobile/)
+ *
+ * A bug in privacy-zone clipping leaks someone's home address — these are not
+ * optional (§12: "not manual checking").
+ */
+import assert from 'node:assert/strict';
+import { after, before, describe, it } from 'node:test';
+
+import { createClient } from '@supabase/supabase-js';
+
+const URL = 'http://127.0.0.1:55321';
+const ANON =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
+
+const ASHA_RIDE = '00000000-0000-4000-c000-000000000001';
+const VEER_RIDE = '00000000-0000-4000-c000-000000000002';
+const ASHA_ROUTE = '00000000-0000-4000-d000-000000000001';
+const ASHA_BIKE = '00000000-0000-4000-b000-000000000001';
+const VEER_BIKE = '00000000-0000-4000-b000-000000000002';
+
+const anon = createClient(URL, ANON);
+const asha = createClient(URL, ANON);
+const veer = createClient(URL, ANON);
+let ashaId, veerId;
+
+function flatPoints(geojson) {
+  if (!geojson) return 0;
+  if (geojson.type === 'LineString') return geojson.coordinates.length;
+  if (geojson.type === 'MultiLineString') return geojson.coordinates.flat().length;
+  return 0;
+}
+
+before(async () => {
+  const a = await asha.auth.signInWithPassword({ email: 'asha@test.local', password: 'password123' });
+  const v = await veer.auth.signInWithPassword({ email: 'veer@test.local', password: 'password123' });
+  if (a.error || v.error) {
+    throw new Error(
+      'Local stack not ready — run `npx supabase start && npx supabase db reset` from the repo root first.'
+    );
+  }
+  ashaId = a.data.user.id;
+  veerId = v.data.user.id;
+});
+
+after(async () => {
+  // belt-and-braces cleanup of anything a failed test left behind
+  await asha.from('privacy_zones').delete().like('label', 'test:%');
+  await asha.from('rides').delete().like('title', 'test:%');
+  await asha.from('routes').delete().like('name', 'test:%');
+});
+
+describe('privacy-zone clipping', () => {
+  it('clips the public track but never the owner’s raw data (seed zone over ride start)', async () => {
+    const { data: raw } = await asha.rpc('own_track_geojson', { p_ride_id: ASHA_RIDE });
+    const { data: clipped } = await anon.rpc('public_track_geom', { p_ride_id: ASHA_RIDE });
+    assert.equal(raw.type, 'MultiLineString');
+    assert.equal(raw.coordinates.length, 2, 'owner keeps both segments untouched');
+    assert.ok(clipped, 'public clip returns geometry for a public profile');
+  });
+
+  it('refuses the clip function entirely for a private profile’s ride', async () => {
+    const { data } = await anon.rpc('public_track_geom', { p_ride_id: VEER_RIDE });
+    assert.equal(data, null);
+  });
+
+  it('a new zone bites immediately; deleting it restores the public face', async () => {
+    const before = flatPoints((await anon.rpc('public_route_geojson', { p_route_id: ASHA_ROUTE })).data);
+    const { error } = await asha.from('privacy_zones').insert({
+      profile_id: ashaId,
+      label: 'test: midpoint zone',
+      area: 'POLYGON((78.38 31.378, 78.40 31.378, 78.40 31.358, 78.38 31.358, 78.38 31.378))',
+    });
+    assert.equal(error, null);
+
+    const during = (await anon.rpc('public_route_geojson', { p_route_id: ASHA_ROUTE })).data;
+    assert.equal(during.type, 'MultiLineString', 'zone splits the public route');
+
+    await asha.from('privacy_zones').delete().eq('label', 'test: midpoint zone');
+    const after = flatPoints((await anon.rpc('public_route_geojson', { p_route_id: ASHA_ROUTE })).data);
+    assert.equal(after, before, 'deletion restores exactly the previous public geometry');
+  });
+
+  it('a zone covering the whole route leaves nothing public', async () => {
+    await asha.from('privacy_zones').insert({
+      profile_id: ashaId,
+      label: 'test: total zone',
+      area: 'POLYGON((78.30 31.45, 78.50 31.45, 78.50 31.30, 78.30 31.30, 78.30 31.45))',
+    });
+    const { data } = await anon.rpc('public_route_geojson', { p_route_id: ASHA_ROUTE });
+    assert.equal(flatPoints(data), 0, 'no coordinates survive');
+    await asha.from('privacy_zones').delete().eq('label', 'test: total zone');
+  });
+});
+
+describe('row-level security', () => {
+  it('anon sees only public-profile rows', async () => {
+    const rides = await anon.from('rides').select('id');
+    assert.equal(rides.data.length, 1);
+    const profiles = await anon.from('profiles').select('id');
+    assert.equal(profiles.data.length, 1);
+  });
+
+  it('anon cannot even query raw geometry or privacy zones', async () => {
+    const tracks = await anon.from('ride_tracks').select('ride_id');
+    assert.ok(tracks.error, 'ride_tracks privilege denied');
+    const zones = await anon.from('privacy_zones').select('id');
+    assert.ok(zones.error, 'privacy_zones privilege denied');
+  });
+
+  it('an authenticated stranger sees public metadata but only their own geometry', async () => {
+    const rides = await veer.from('rides').select('id');
+    assert.equal(rides.data.length, 2, 'own + public');
+    const tracks = await veer.from('ride_tracks').select('ride_id');
+    assert.equal(tracks.data.length, 1, 'own track only');
+    const zones = await veer.from('privacy_zones').select('id');
+    assert.equal(zones.data.length, 0, 'asha’s zones invisible');
+  });
+
+  it('cross-user writes are rejected', async () => {
+    const upd = await veer.from('rides').update({ title: 'hacked' }).eq('profile_id', ashaId).select();
+    assert.equal(upd.data.length, 0, 'update affects zero rows');
+    const ins = await veer.from('rides').insert({
+      profile_id: ashaId,
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+    });
+    assert.ok(ins.error, 'insert as someone else violates RLS');
+  });
+
+  it('private-profile routes never appear in routes_public', async () => {
+    const { data: route, error } = await veer
+      .from('routes')
+      .insert({
+        profile_id: veerId,
+        name: 'test: private route',
+        distance_km: 5,
+        geom: 'LINESTRING(74.83 34.08, 74.86 34.10)',
+      })
+      .select('id')
+      .single();
+    assert.equal(error, null);
+    const pub = await anon.from('routes_public').select('id').eq('id', route.id);
+    assert.equal(pub.data.length, 0);
+    await veer.from('routes').delete().eq('id', route.id);
+  });
+});
+
+describe('server-side distance and odometer', () => {
+  it('distance sums segments only — the gap span is never counted', async () => {
+    // Two ~1.1km meridian segments with a ~1.1km hole between them.
+    const rideId = crypto.randomUUID();
+    await asha.from('rides').insert({
+      id: rideId,
+      profile_id: ashaId,
+      bike_id: null,
+      started_at: new Date(Date.now() - 3600e3).toISOString(),
+      ended_at: new Date().toISOString(),
+      gap_count: 1,
+      gap_duration_s: 300,
+      title: 'test: synthetic gap ride',
+    });
+    await asha.from('ride_tracks').upsert(
+      {
+        ride_id: rideId,
+        profile_id: ashaId,
+        geom: 'MULTILINESTRING((77.0 31.00, 77.0 31.01), (77.0 31.02, 77.0 31.03))',
+      },
+      { onConflict: 'ride_id' }
+    );
+    const { data: ride } = await asha.from('rides').select('distance_km').eq('id', rideId).single();
+    const km = Number(ride.distance_km);
+    // each 0.01° of latitude ≈ 1.109 km here; two segments ≈ 2.22, with gap ≈ 3.33
+    assert.ok(km > 2.0 && km < 2.4, `distance ${km} must be ~2.2 (segments), not ~3.3 (with gap)`);
+    await asha.from('rides').delete().eq('id', rideId);
+  });
+
+  it('odometer follows ride lifecycle: insert, idempotent re-sync, delete', async () => {
+    const odoAt = async () =>
+      Number((await asha.from('bikes').select('current_odometer_km').eq('id', ASHA_BIKE).single()).data.current_odometer_km);
+
+    const base = await odoAt();
+    const rideId = crypto.randomUUID();
+    await asha.from('rides').insert({
+      id: rideId,
+      profile_id: ashaId,
+      bike_id: ASHA_BIKE,
+      started_at: new Date(Date.now() - 3600e3).toISOString(),
+      ended_at: new Date().toISOString(),
+      title: 'test: odo ride',
+    });
+    const track = {
+      ride_id: rideId,
+      profile_id: ashaId,
+      geom: 'MULTILINESTRING((77.0 31.00, 77.0 31.01))',
+    };
+    await asha.from('ride_tracks').upsert(track, { onConflict: 'ride_id' });
+    const { data: r } = await asha.from('rides').select('distance_km').eq('id', rideId).single();
+    const withRide = await odoAt();
+    assert.ok(Math.abs(withRide - base - Number(r.distance_km)) < 0.001, 'odometer moved by the ride distance');
+
+    // retrying the sync (§4 idempotency) must not double-count
+    await asha.from('ride_tracks').upsert(track, { onConflict: 'ride_id' });
+    assert.equal(await odoAt(), withRide, 'idempotent re-upsert leaves odometer unchanged');
+
+    await asha.from('rides').delete().eq('id', rideId);
+    assert.equal(await odoAt(), base, 'deletion rolls the odometer back');
+  });
+
+  it('a ride cannot move someone else’s bike odometer', async () => {
+    const rideId = crypto.randomUUID();
+    const { error } = await asha.from('rides').insert({
+      id: rideId,
+      profile_id: ashaId,
+      bike_id: VEER_BIKE, // not asha’s bike
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      distance_km: 100,
+      title: 'test: cross-bike',
+    });
+    // Either the insert is rejected outright or the trigger's RLS-checked
+    // update fails — both acceptable, silence is not.
+    if (!error) {
+      const { data } = await veer.from('bikes').select('current_odometer_km').eq('id', VEER_BIKE).single();
+      assert.equal(Number(data.current_odometer_km), 24118 + 5.32, 'veer’s odometer untouched');
+      await asha.from('rides').delete().eq('id', rideId);
+    } else {
+      assert.ok(error);
+    }
+  });
+});
