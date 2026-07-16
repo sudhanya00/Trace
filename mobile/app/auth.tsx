@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
 } from 'react-native';
 
 import { PushButton } from '../src/components/PushButton';
@@ -15,32 +16,86 @@ import { Field, MonoLabel } from '../src/components/ui';
 import { supabase } from '../src/lib/supabase';
 import { color, font, layout } from '../src/theme/tokens';
 
+/**
+ * Phone-first sign-in (user decision 2026-07-16): number → code → riding.
+ * No passwords. Email stays as the fallback door for existing accounts and
+ * the odd rider without reliable SMS.
+ */
+
+/** "98765 43210" → "+919876543210"; anything already-international passes through. */
+function normalizePhone(raw: string): string | null {
+  const cleaned = raw.replace(/[\s\-()]/g, '');
+  if (/^\+\d{8,15}$/.test(cleaned)) return cleaned;
+  if (/^\d{10}$/.test(cleaned)) return `+91${cleaned}`;
+  return null;
+}
+
 export default function Auth() {
-  const [mode, setMode] = useState<'in' | 'up'>('in');
+  const [step, setStep] = useState<'phone' | 'code' | 'email'>('phone');
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [emailMode, setEmailMode] = useState<'in' | 'up'>('in');
   const [busy, setBusy] = useState(false);
+  const sentTo = useRef<string | null>(null);
 
-  const submit = async () => {
+  const sendCode = async () => {
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      Alert.alert('Check the number', 'Ten digits, or the full number with country code.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.signInWithOtp({ phone: normalized });
+      if (error) throw error;
+      sentTo.current = normalized;
+      setCode('');
+      setStep('code');
+    } catch (e) {
+      Alert.alert('Could not send the code', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verify = async () => {
+    if (!sentTo.current || code.trim().length < 4) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        phone: sentTo.current,
+        token: code.trim(),
+        type: 'sms',
+      });
+      if (error) throw error;
+      router.replace('/');
+    } catch (e) {
+      Alert.alert('Wrong code?', (e as Error).message);
+      setBusy(false);
+    }
+  };
+
+  const submitEmail = async () => {
     if (!email.trim() || !password) return;
     setBusy(true);
     try {
-      if (mode === 'in') {
+      if (emailMode === 'in') {
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         if (error) throw error;
         router.replace('/');
       } else {
         const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
         if (error) throw error;
-        if (data.session) {
-          router.replace('/');
-        } else {
+        if (data.session) router.replace('/');
+        else {
           Alert.alert('Check your email', 'Confirm your address, then sign in.');
-          setMode('in');
+          setEmailMode('in');
         }
       }
     } catch (e) {
-      Alert.alert(mode === 'in' ? 'Sign in failed' : 'Sign up failed', (e as Error).message);
+      Alert.alert('Sign in failed', (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -55,38 +110,88 @@ export default function Auth() {
         <MonoLabel style={{ marginBottom: 8 }}>Ride. Trace. Belong.</MonoLabel>
         <Text style={st.word}>TRACE</Text>
 
-        <Field
-          label="Email"
-          value={email}
-          onChangeText={setEmail}
-          placeholder="you@somewhere.com"
-          keyboardType="email-address"
-          style={{ marginTop: 40 }}
-        />
-        <Field
-          label="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          style={{ marginTop: 18 }}
-        />
+        {step === 'phone' && (
+          <>
+            <Field
+              label="Phone"
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="98765 43210"
+              keyboardType="phone-pad"
+              style={{ marginTop: 40 }}
+            />
+            <PushButton
+              label="Send code"
+              onPress={sendCode}
+              disabled={busy || phone.replace(/\D/g, '').length < 10}
+              style={{ marginTop: 30 }}
+            />
+            <Pressable onPress={() => setStep('email')} style={st.switch}>
+              <Text style={st.switchText}>Use email instead</Text>
+            </Pressable>
+          </>
+        )}
 
-        <PushButton
-          label={mode === 'in' ? 'Sign in' : 'Create account'}
-          onPress={submit}
-          disabled={busy || !email.trim() || password.length < 6}
-          style={{ marginTop: 30 }}
-        />
+        {step === 'code' && (
+          <>
+            <MonoLabel size={9} style={{ marginTop: 40 }}>
+              Code sent to {sentTo.current}
+            </MonoLabel>
+            <TextInput
+              value={code}
+              onChangeText={setCode}
+              placeholder="••••••"
+              placeholderTextColor={color.dim}
+              keyboardType="number-pad"
+              maxLength={6}
+              autoFocus
+              style={st.codeInput}
+            />
+            <PushButton
+              label="Verify"
+              onPress={verify}
+              disabled={busy || code.trim().length < 4}
+              style={{ marginTop: 26 }}
+            />
+            <Pressable onPress={() => setStep('phone')} style={st.switch}>
+              <Text style={st.switchText}>Different number</Text>
+            </Pressable>
+          </>
+        )}
 
-        <Pressable onPress={() => setMode(mode === 'in' ? 'up' : 'in')} style={st.switch}>
-          <Text style={st.switchText}>
-            {mode === 'in' ? 'New here? Create an account' : 'Have an account? Sign in'}
-          </Text>
-        </Pressable>
-
-        <MonoLabel size={8.5} style={{ marginTop: 34, color: color.dim }}>
-          Google and Apple sign-in are on the way
-        </MonoLabel>
+        {step === 'email' && (
+          <>
+            <Field
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@somewhere.com"
+              keyboardType="email-address"
+              style={{ marginTop: 40 }}
+            />
+            <Field
+              label="Password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              style={{ marginTop: 18 }}
+            />
+            <PushButton
+              label={emailMode === 'in' ? 'Sign in' : 'Create account'}
+              onPress={submitEmail}
+              disabled={busy || !email.trim() || password.length < 6}
+              style={{ marginTop: 30 }}
+            />
+            <Pressable onPress={() => setEmailMode(emailMode === 'in' ? 'up' : 'in')} style={st.switch}>
+              <Text style={st.switchText}>
+                {emailMode === 'in' ? 'New here? Create an account' : 'Have an account? Sign in'}
+              </Text>
+            </Pressable>
+            <Pressable onPress={() => setStep('phone')} style={st.switch}>
+              <Text style={st.switchText}>Use phone instead</Text>
+            </Pressable>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -106,6 +211,21 @@ const st = StyleSheet.create({
     letterSpacing: 2,
     lineHeight: 58,
   },
-  switch: { marginTop: 22, paddingVertical: 6 },
+  codeInput: {
+    marginTop: 14,
+    backgroundColor: color.slate2,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    color: color.white,
+    fontFamily: font.display,
+    fontSize: 30,
+    letterSpacing: 12,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  switch: { marginTop: 18, alignSelf: 'center', padding: 6 },
   switchText: { fontFamily: font.bodyMedium, color: color.steel, fontSize: 13 },
 });

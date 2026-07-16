@@ -54,6 +54,20 @@ after(async () => {
   await asha.from('routes').delete().like('name', 'test:%');
 });
 
+describe('phone OTP sign-in (local test OTP)', () => {
+  it('number → code → session', async () => {
+    const client = createClient(URL, ANON);
+    const phone = '+919876543210';
+    const { error: sendErr } = await client.auth.signInWithOtp({ phone });
+    assert.equal(sendErr, null, `send failed: ${sendErr?.message}`);
+    const { data, error } = await client.auth.verifyOtp({ phone, token: '424242', type: 'sms' });
+    assert.equal(error, null, `verify failed: ${error?.message}`);
+    assert.ok(data.session?.access_token, 'session minted');
+    const { data: wrong } = await client.auth.verifyOtp({ phone, token: '000000', type: 'sms' });
+    assert.equal(wrong.session, null, 'wrong code mints nothing');
+  });
+});
+
 describe('privacy-zone clipping', () => {
   it('clips the public track but never the owner’s raw data (seed zone over ride start)', async () => {
     const { data: raw } = await asha.rpc('own_track_geojson', { p_ride_id: ASHA_RIDE });
