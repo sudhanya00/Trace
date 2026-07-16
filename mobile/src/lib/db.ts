@@ -512,6 +512,104 @@ export async function markNotificationRead(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export type Crew = {
+  id: string;
+  name: string;
+  region: string | null;
+  description: string | null;
+  created_by: string | null;
+  created_at: string;
+  member_count?: number;
+};
+
+export type CrewMessage = {
+  id: string;
+  profile_id: string;
+  handle: string;
+  body: string;
+  created_at: string;
+};
+
+export type CrewMember = {
+  profile_id: string;
+  handle: string;
+  display_name: string | null;
+  role: 'admin' | 'member';
+  joined_at: string;
+};
+
+export async function listCrews(): Promise<Crew[]> {
+  const { data, error } = await supabase
+    .from('crews')
+    .select('*, crew_members(count)')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((c) => ({
+    ...c,
+    member_count: (c.crew_members as { count: number }[] | null)?.[0]?.count ?? 0,
+  }));
+}
+
+export async function myCrewIds(userId: string): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from('crew_members')
+    .select('crew_id')
+    .eq('profile_id', userId);
+  if (error) throw error;
+  return new Set((data ?? []).map((m) => m.crew_id));
+}
+
+export async function createCrew(
+  userId: string,
+  input: { name: string; region: string | null; description: string | null }
+): Promise<Crew> {
+  const { data, error } = await supabase
+    .from('crews')
+    .insert({ ...input, created_by: userId })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function joinCrew(userId: string, crewId: string): Promise<void> {
+  const { error } = await supabase
+    .from('crew_members')
+    .insert({ crew_id: crewId, profile_id: userId });
+  if (error) throw error;
+}
+
+export async function leaveCrew(userId: string, crewId: string): Promise<void> {
+  const { error } = await supabase
+    .from('crew_members')
+    .delete()
+    .eq('crew_id', crewId)
+    .eq('profile_id', userId);
+  if (error) throw error;
+}
+
+export async function crewChat(crewId: string, before?: string): Promise<CrewMessage[]> {
+  const { data, error } = await supabase.rpc('crew_chat', {
+    p_crew_id: crewId,
+    p_before: before ?? null,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function crewRoster(crewId: string): Promise<CrewMember[]> {
+  const { data, error } = await supabase.rpc('crew_roster', { p_crew_id: crewId });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function sendCrewMessage(userId: string, crewId: string, body: string): Promise<void> {
+  const { error } = await supabase
+    .from('crew_messages')
+    .insert({ crew_id: crewId, profile_id: userId, body });
+  if (error) throw error;
+}
+
 /** §12b: one-tap report — the feedback loop that fixes GPS. */
 export async function submitRecordingReport(
   userId: string,

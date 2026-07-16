@@ -111,6 +111,18 @@ export default function Riders() {
         </>
       )}
 
+      <Pressable onPress={() => router.push('/crews')}>
+        {({ pressed }) => (
+          <View style={[st.crewsRow, pressed && { backgroundColor: color.slate2 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={st.rowName}>Crews</Text>
+              <Text style={st.rowSub}>Local groups, live chat. Find yours or start it.</Text>
+            </View>
+            <Feather name="chevron-right" size={16} color={color.dim} />
+          </View>
+        )}
+      </Pressable>
+
       <Field
         label="Find riders"
         value={q}
@@ -256,4 +268,15 @@ const st = StyleSheet.create({
   smallBtnOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
   smallBtnText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2, color: color.steel },
   unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.signal },
+  crewsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    padding: 14,
+    backgroundColor: color.slate,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 12,
+    gap: 8,
+  },
 });

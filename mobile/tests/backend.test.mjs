@@ -302,6 +302,80 @@ describe('notifications', () => {
   });
 });
 
+describe('crews and chat', () => {
+  let crewId;
+
+  after(async () => {
+    if (crewId) await asha.from('crews').delete().eq('id', crewId);
+  });
+
+  it('creating a crew makes you its admin, atomically', async () => {
+    const { data, error } = await asha
+      .from('crews')
+      .insert({ name: 'test: Sangla crew', region: 'Himachal', created_by: ashaId })
+      .select('id')
+      .single();
+    assert.equal(error, null);
+    crewId = data.id;
+    const { data: me } = await asha
+      .from('crew_members')
+      .select('role')
+      .eq('crew_id', crewId)
+      .eq('profile_id', ashaId)
+      .single();
+    assert.equal(me.role, 'admin');
+  });
+
+  it('chat is sealed to members; joining opens it; leaving closes it', async () => {
+    await asha.from('crew_messages').insert({ crew_id: crewId, profile_id: ashaId, body: 'test: kickoff' });
+
+    const outsider = await veer.rpc('crew_chat', { p_crew_id: crewId });
+    assert.equal(outsider.data.length, 0, 'non-member reads nothing');
+    const sendOut = await veer
+      .from('crew_messages')
+      .insert({ crew_id: crewId, profile_id: veerId, body: 'test: sneak' });
+    assert.ok(sendOut.error, 'non-member cannot send');
+
+    await veer.from('crew_members').insert({ crew_id: crewId, profile_id: veerId });
+    const inside = await veer.rpc('crew_chat', { p_crew_id: crewId });
+    assert.ok(inside.data.some((m) => m.body === 'test: kickoff'), 'member reads the room');
+    const send = await veer
+      .from('crew_messages')
+      .insert({ crew_id: crewId, profile_id: veerId, body: 'test: hello from veer' });
+    assert.equal(send.error, null, 'member sends');
+
+    await veer.from('crew_members').delete().eq('crew_id', crewId).eq('profile_id', veerId);
+    const gone = await veer.rpc('crew_chat', { p_crew_id: crewId });
+    assert.equal(gone.data.length, 0, 'leaving closes the room');
+  });
+
+  it('nobody joins as admin, joins as someone else, or removes others without the badge', async () => {
+    const forged = await veer
+      .from('crew_members')
+      .insert({ crew_id: crewId, profile_id: veerId, role: 'admin' });
+    assert.ok(forged.error, 'self-appointed admin rejected');
+    const asOther = await veer.from('crew_members').insert({ crew_id: crewId, profile_id: ashaId });
+    assert.ok(asOther.error, 'joining as someone else rejected');
+
+    await veer.from('crew_members').insert({ crew_id: crewId, profile_id: veerId });
+    const kick = await veer
+      .from('crew_members')
+      .delete()
+      .eq('crew_id', crewId)
+      .eq('profile_id', ashaId)
+      .select();
+    assert.equal(kick.data.length, 0, 'plain member cannot remove the admin');
+    // the admin CAN remove a member
+    const adminKick = await asha
+      .from('crew_members')
+      .delete()
+      .eq('crew_id', crewId)
+      .eq('profile_id', veerId)
+      .select();
+    assert.equal(adminKick.data.length, 1, 'admin removes a member');
+  });
+});
+
 describe('server-side distance and odometer', () => {
   it('distance sums segments only — the gap span is never counted', async () => {
     // Two ~1.1km meridian segments with a ~1.1km hole between them.
