@@ -13,6 +13,8 @@ import {
   getRide,
   ownTrackSegments,
   Ride,
+  Route,
+  routeForRide,
   submitRecordingReport,
   updateRide,
 } from '../../src/lib/db';
@@ -39,6 +41,7 @@ export default function RideDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { session } = useAuth();
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [route, setRoute] = useState<Route | null>(null);
   const [bikeName, setBikeName] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
@@ -79,6 +82,7 @@ export default function RideDetail() {
       const segments = await ownTrackSegments(ride.id).catch(() => null);
       if (!alive) return;
       setDetail({ source: 'server', ride, segments });
+      routeForRide(ride.id).then((r) => alive && setRoute(r)).catch(() => {});
       if (ride.bike_id) getBike(ride.bike_id).then((b) => alive && setBikeName(b ? `${b.make} ${b.model}` : null)).catch(() => {});
     })();
     return () => {
@@ -200,10 +204,20 @@ export default function RideDetail() {
             <Field label="Title" value={title} onChangeText={setTitle} placeholder="Sangla to Chitkul" autoCapitalize="sentences" style={{ marginTop: 26 }} />
             <Field label="Note" value={note} onChangeText={setNote} placeholder="Broken tarmac after the bridge." autoCapitalize="sentences" style={{ marginTop: 16 }} />
             <PushButton label="Save" variant="slate" onPress={save} disabled={busy} style={{ marginTop: 22 }} />
-            <PushButton label="Share as route" onPress={() => {}} disabled style={{ marginTop: 26 }} />
-            <MonoLabel size={8} style={{ alignSelf: 'center', marginTop: 8, color: color.dim }}>
-              Route sharing — next build
-            </MonoLabel>
+            {route ? (
+              <PushButton
+                label="View route"
+                onPress={() => router.push(`/route/${route.id}`)}
+                style={{ marginTop: 26 }}
+              />
+            ) : (
+              <PushButton
+                label="Share as route"
+                onPress={() => router.push(`/route/share?rideId=${detail.ride.id}`)}
+                disabled={segments.length === 0}
+                style={{ marginTop: 26 }}
+              />
+            )}
           </>
         )}
 

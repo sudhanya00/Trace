@@ -54,7 +54,8 @@
         }
       ],
       "@sentry/react-native",
-      "@maplibre/maplibre-react-native"
+      "@maplibre/maplibre-react-native",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true
