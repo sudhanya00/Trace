@@ -11,6 +11,8 @@ export type Profile = {
   created_at: string;
 };
 
+export type BikeType = 'naked' | 'sport' | 'adv' | 'cruiser' | 'scrambler' | 'tourer';
+
 export type Bike = {
   id: string;
   profile_id: string;
@@ -21,6 +23,7 @@ export type Bike = {
   photo_url: string | null;
   current_odometer_km: number;
   is_active: boolean;
+  type: BikeType | null;
   created_at: string;
 };
 
@@ -99,6 +102,7 @@ export type BikeInput = {
   year: number | null;
   mods: string | null;
   current_odometer_km: number;
+  type: BikeType | null;
 };
 
 export async function createBike(profileId: string, input: BikeInput): Promise<Bike> {
@@ -672,6 +676,48 @@ export async function rsvpInvite(userId: string, inviteId: string, going: boolea
       .eq('profile_id', userId);
     if (error) throw error;
   }
+}
+
+/** My trace's bounding box [w,s,e,n] — the map opens fitted to YOUR world. */
+export async function traceBounds(): Promise<[number, number, number, number] | null> {
+  const { data, error } = await supabase.rpc('trace_bounds');
+  if (error) throw error;
+  return data as [number, number, number, number] | null;
+}
+
+export async function upsertLivePosition(userId: string, lng: number, lat: number, rideStartedAt: number) {
+  await supabase.from('live_positions').upsert({
+    profile_id: userId,
+    geom: `POINT(${lng} ${lat})`,
+    ride_started_at: new Date(rideStartedAt).toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+}
+
+export async function clearLivePosition(userId: string) {
+  await supabase.from('live_positions').delete().eq('profile_id', userId);
+}
+
+export type LivePosition = {
+  point: { type: 'Point'; coordinates: [number, number] };
+  updated_at: string;
+  ride_started_at: string | null;
+};
+
+export async function livePositionOf(profileId: string): Promise<LivePosition | null> {
+  const { data, error } = await supabase.rpc('live_position_of', { p_profile_id: profileId });
+  if (error) throw error;
+  return data;
+}
+
+export async function listAchievements(profileId: string): Promise<{ key: string; achieved_at: string }[]> {
+  const { data, error } = await supabase
+    .from('achievements')
+    .select('key, achieved_at')
+    .eq('profile_id', profileId)
+    .order('achieved_at', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
 }
 
 /** §12b: one-tap report — the feedback loop that fixes GPS. */

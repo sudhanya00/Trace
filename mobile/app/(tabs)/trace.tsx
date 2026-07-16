@@ -2,16 +2,20 @@ import {
   Camera,
   Layer,
   Map as MapLibreMap,
+  Marker,
   TransformRequestManager,
   VectorSource,
 } from '@maplibre/maplibre-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { BikeMarker } from '../../src/components/BikeMarker';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
-import { listMyRides } from '../../src/lib/db';
+import { BikeType, listBikes, listMyRides, traceBounds } from '../../src/lib/db';
 import { supabase } from '../../src/lib/supabase';
 import { color, font, layout } from '../../src/theme/tokens';
 
@@ -32,9 +36,11 @@ const FALLBACK: [number, number] = [77.17, 31.1]; // Himachal
 export default function TraceMap() {
   const { session } = useAuth();
   const [ready, setReady] = useState(false);
-  const [center, setCenter] = useState<[number, number]>(FALLBACK);
+  const [bounds, setBounds] = useState<[number, number, number, number] | null>(null);
   const [totalKm, setTotalKm] = useState<number | null>(null);
   const [rideCount, setRideCount] = useState(0);
+  const [me, setMe] = useState<[number, number] | null>(null);
+  const [bikeType, setBikeType] = useState<BikeType | null>(null);
 
   // Tile requests need the caller's JWT — the function is RLS-scoped to the
   // rider. Headers are (re)applied on focus so a refreshed token wins.
@@ -77,6 +83,23 @@ export default function TraceMap() {
         setTotalKm(rides.reduce((s, r) => s + Number(r.distance_km), 0));
       })
       .catch(() => {});
+    // Fit the camera to everything you've ridden — the map opens full.
+    traceBounds().then(setBounds).catch(() => {});
+    // Your puck: current position wearing the active bike's silhouette.
+    listBikes(session.user.id)
+      .then((bikes) => {
+        const active = bikes.filter((b) => b.is_active);
+        if (active.length) setBikeType(active[active.length - 1].type);
+      })
+      .catch(() => {});
+    (async () => {
+      const perm = await Location.getForegroundPermissionsAsync();
+      if (!perm.granted) return;
+      const pos =
+        (await Location.getLastKnownPositionAsync()) ??
+        (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null));
+      if (pos) setMe([pos.coords.longitude, pos.coords.latitude]);
+    })();
   }, [session]);
 
   return (
@@ -89,7 +112,25 @@ export default function TraceMap() {
           compass={false}
           scaleBar={false}
         >
-          <Camera initialViewState={{ center, zoom: 8 }} />
+          <Camera
+            initialViewState={
+              bounds
+                ? {
+                    bounds: [
+                      bounds[0] - (bounds[2] - bounds[0]) * 0.15 - 0.01,
+                      bounds[1] - (bounds[3] - bounds[1]) * 0.15 - 0.01,
+                      bounds[2] + (bounds[2] - bounds[0]) * 0.15 + 0.01,
+                      bounds[3] + (bounds[3] - bounds[1]) * 0.15 + 0.01,
+                    ],
+                  }
+                : { center: me ?? FALLBACK, zoom: 8 }
+            }
+          />
+          {me && (
+            <Marker lngLat={me} anchor="center">
+              <BikeMarker type={bikeType} />
+            </Marker>
+          )}
           <VectorSource id="trace" tiles={[TILE_URL]}>
             {/* three translucent passes: overlap stacks into heat */}
             <Layer
@@ -120,6 +161,27 @@ export default function TraceMap() {
         </MapLibreMap>
       )}
 
+      {/* edge glow: the map sits IN the cluster, not on top of it */}
+      <LinearGradient
+        colors={['rgba(11,13,14,0.6)', 'rgba(11,13,14,0)']}
+        style={st.edgeTop}
+        pointerEvents="none"
+      />
+      <LinearGradient
+        colors={['rgba(11,13,14,0.45)', 'rgba(11,13,14,0)']}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={st.edgeLeft}
+        pointerEvents="none"
+      />
+      <LinearGradient
+        colors={['rgba(11,13,14,0)', 'rgba(11,13,14,0.45)']}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={st.edgeRight}
+        pointerEvents="none"
+      />
+
       {/* header overlay — mono voice, out of the map's way */}
       <View style={st.head} pointerEvents="none">
         <MonoLabel size={9.5} style={{ letterSpacing: 2.3 }}>
@@ -147,6 +209,9 @@ export default function TraceMap() {
 
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.void },
+  edgeTop: { position: 'absolute', top: 0, left: 0, right: 0, height: 140 },
+  edgeLeft: { position: 'absolute', top: 0, bottom: 0, left: 0, width: 42 },
+  edgeRight: { position: 'absolute', top: 0, bottom: 0, right: 0, width: 42 },
   head: {
     position: 'absolute',
     top: 64,

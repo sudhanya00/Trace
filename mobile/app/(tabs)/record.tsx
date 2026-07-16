@@ -30,11 +30,13 @@ import {
   rideState,
   RideState,
 } from '../../src/lib/localdb';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AUTO_PAUSE_MS,
   finalizeInterrupted,
   finishRide,
   isRecordingTaskRunning,
+  LIVE_SHARE_KEY,
   resumeRide,
   startRide,
 } from '../../src/lib/recording';
@@ -72,6 +74,11 @@ export default function Record() {
   // permission only) means the fix usually exists BEFORE the Start tap —
   // the same trick maps apps use. Stops on blur; costs nothing on other tabs.
   const [warmFix, setWarmFix] = useState<{ accuracy: number | null; ts: number } | null>(null);
+  const [liveShare, setLiveShare] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(LIVE_SHARE_KEY).then((v) => setLiveShare(v === '1')).catch(() => {});
+  }, []);
 
   const refresh = useCallback(async () => {
     const ride = recordingRide();
@@ -293,6 +300,23 @@ export default function Record() {
         </View>
       )}
 
+      {/* live share opt-in: followers-only, off by default */}
+      {phase.kind === 'idle' && (
+        <Pressable
+          onPress={async () => {
+            const next = !liveShare;
+            setLiveShare(next);
+            await AsyncStorage.setItem(LIVE_SHARE_KEY, next ? '1' : '0').catch(() => {});
+          }}
+          style={st.liveShareRow}
+        >
+          <View style={[st.liveShareDot, liveShare && { backgroundColor: color.signal }]} />
+          <Text style={st.liveShareText}>
+            Share live location with followers while riding {liveShare ? '— on' : '— off'}
+          </Text>
+        </Pressable>
+      )}
+
       {/* idle: bike selector */}
       {phase.kind === 'idle' && bikes.length > 0 && (
         <View style={st.bikeRow}>
@@ -511,6 +535,16 @@ const st = StyleSheet.create({
 
   betaRow: { marginHorizontal: layout.screenPadding, marginTop: 16 },
   betaText: { fontFamily: font.body, fontSize: 11, color: color.dim, lineHeight: 16 },
+  liveShareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: layout.screenPadding,
+    marginTop: 10,
+    paddingVertical: 4,
+  },
+  liveShareDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: color.slate2, borderWidth: 1, borderColor: color.hair },
+  liveShareText: { fontFamily: font.body, fontSize: 11, color: color.steel },
 
   ctrl: { padding: layout.screenPadding, paddingBottom: 100, marginTop: 20 },
 

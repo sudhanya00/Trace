@@ -1,10 +1,16 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
 
+import { clearLivePosition, upsertLivePosition } from './db';
 import { metersBetween } from './geo';
 import { ldb, LocalRide, recordingRide, rideState } from './localdb';
+import { supabase } from './supabase';
+
+/** AsyncStorage key for the live-share opt-in. OFF unless the rider says so. */
+export const LIVE_SHARE_KEY = 'trace_live_share';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -70,6 +76,18 @@ TaskManager.defineTask(RECORDING_TASK, async ({ data, error }) => {
   if (now - lastNotificationUpdate > 30_000) {
     lastNotificationUpdate = now;
     const s = rideState(ride.id);
+    // Live share (opt-in): one small upsert per cycle. Followers-only by RLS;
+    // failure (dead zone) is silence, and staleness reads honestly on their end.
+    if (s) {
+      AsyncStorage.getItem(LIVE_SHARE_KEY)
+        .then(async (on) => {
+          if (on !== '1') return;
+          const { data } = await supabase.auth.getSession();
+          const uid = data.session?.user.id;
+          if (uid) await upsertLivePosition(uid, s.last_lng, s.last_lat, ride.started_at);
+        })
+        .catch(() => {});
+    }
     if (s) {
       const km = (s.distance_m / 1000).toFixed(1);
       const mins = Math.floor((now - ride.started_at) / 60_000);
@@ -239,6 +257,11 @@ export async function finishRide(ride: LocalRide): Promise<void> {
     "UPDATE local_rides SET ended_at = ?, sync_state = 'pending' WHERE id = ?",
     [endedAt, ride.id]
   );
+  // The ride is over: the live position leaves the map immediately.
+  supabase.auth.getSession().then(({ data }) => {
+    const uid = data.session?.user.id;
+    if (uid) clearLivePosition(uid).catch(() => {});
+  });
 }
 
 /** Finalize a ride found dead after a kill/reboot — data kept, never lost (§5). */

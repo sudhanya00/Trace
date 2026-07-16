@@ -2,13 +2,19 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { Badges } from '../../src/components/Badges';
 import { PushButton } from '../../src/components/PushButton';
 import { Card, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
+import { Camera, Map as MapLibreMap, Marker } from '@maplibre/maplibre-react-native';
+
+import { BikeMarker } from '../../src/components/BikeMarker';
 import {
   follow,
   followEdges,
   listRiderRoutes,
+  livePositionOf,
+  LivePosition,
   Profile,
   Route,
   unfollow,
@@ -30,6 +36,28 @@ export default function RiderDetail() {
   const [state, setState] = useState<FollowState>('none');
   const [routes, setRoutes] = useState<Route[]>([]);
   const [rideStats, setRideStats] = useState<{ count: number; km: number } | null>(null);
+  const [live, setLive] = useState<LivePosition | null>(null);
+
+  // Riding now: poll the live point while the screen is open. RLS makes this
+  // return nothing unless they accepted your follow.
+  useEffect(() => {
+    if (!id || state !== 'accepted') return;
+    let alive = true;
+    const check = () =>
+      livePositionOf(id)
+        .then((p) => {
+          if (!alive) return;
+          const fresh = p && Date.now() - +new Date(p.updated_at) < 10 * 60_000;
+          setLive(fresh ? p : null);
+        })
+        .catch(() => {});
+    check();
+    const t = setInterval(check, 20_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [id, state]);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -123,6 +151,43 @@ export default function RiderDetail() {
         </Text>
       )}
 
+      {live && (
+        <View style={st.liveWrap}>
+          <View style={st.liveHead}>
+            <View style={st.liveDot} />
+            <Text style={st.liveLabel}>RIDING NOW</Text>
+            <Text style={st.liveWhen}>
+              updated {Math.max(1, Math.round((Date.now() - +new Date(live.updated_at)) / 60000))}m ago
+            </Text>
+          </View>
+          <View style={st.liveMap}>
+            <MapLibreMap
+              style={{ flex: 1 }}
+              mapStyle="https://tiles.openfreemap.org/styles/dark"
+              dragPan={false}
+              touchZoom={false}
+              doubleTapZoom={false}
+              touchRotate={false}
+              touchPitch={false}
+              compass={false}
+              scaleBar={false}
+            >
+              <Camera
+                initialViewState={{
+                  center: live.point.coordinates,
+                  zoom: 11,
+                }}
+              />
+              <Marker lngLat={live.point.coordinates} anchor="center">
+                <BikeMarker type={null} />
+              </Marker>
+            </MapLibreMap>
+          </View>
+        </View>
+      )}
+
+      {rider && <Badges profileId={rider.id} />}
+
       {state === 'none' && <PushButton label="Follow" onPress={onFollow} style={{ marginTop: 24 }} />}
       {state === 'pending' && (
         <PushButton label="Requested — cancel" variant="slate" onPress={onUnfollow} style={{ marginTop: 24 }} />
@@ -193,6 +258,18 @@ const st = StyleSheet.create({
   },
   cellUnit: { fontSize: 12, color: color.steel },
   privateNote: { fontFamily: font.body, fontSize: 12.5, color: color.steel, lineHeight: 18, marginTop: 20 },
+  liveWrap: { marginTop: 22 },
+  liveHead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 8 },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.signal },
+  liveLabel: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.6, color: color.signal },
+  liveWhen: { fontFamily: font.mono, fontSize: 8, color: color.dim, marginLeft: 'auto' },
+  liveMap: {
+    height: 170,
+    borderRadius: layout.cardRadius,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(46,125,255,.25)',
+  },
   routePhoto: { width: '100%', height: 120, borderRadius: 8, marginBottom: 12 },
   routeName: { fontFamily: font.bodySemi, fontSize: 14, color: color.white },
   routeSub: {

@@ -1,14 +1,14 @@
 import {
-  Archivo_400Regular,
-  Archivo_500Medium,
-  Archivo_600SemiBold,
-  Archivo_700Bold,
-} from '@expo-google-fonts/archivo';
+  ChakraPetch_500Medium,
+  ChakraPetch_600SemiBold,
+  ChakraPetch_700Bold,
+} from '@expo-google-fonts/chakra-petch';
 import {
-  BarlowCondensed_500Medium,
-  BarlowCondensed_600SemiBold,
-  BarlowCondensed_700Bold,
-} from '@expo-google-fonts/barlow-condensed';
+  Saira_400Regular,
+  Saira_500Medium,
+  Saira_600SemiBold,
+  Saira_700Bold,
+} from '@expo-google-fonts/saira';
 import {
   JetBrainsMono_400Regular,
   JetBrainsMono_500Medium,
@@ -72,13 +72,13 @@ function PushWiring() {
 
 function RootLayout() {
   const [fontsLoaded] = useFonts({
-    BarlowCondensed_500Medium,
-    BarlowCondensed_600SemiBold,
-    BarlowCondensed_700Bold,
-    Archivo_400Regular,
-    Archivo_500Medium,
-    Archivo_600SemiBold,
-    Archivo_700Bold,
+    ChakraPetch_500Medium,
+    ChakraPetch_600SemiBold,
+    ChakraPetch_700Bold,
+    Saira_400Regular,
+    Saira_500Medium,
+    Saira_600SemiBold,
+    Saira_700Bold,
     JetBrainsMono_400Regular,
     JetBrainsMono_500Medium,
     JetBrainsMono_700Bold,
@@ -116,6 +116,9 @@ function RootLayout() {
             screenOptions={{
               headerShown: false,
               contentStyle: { backgroundColor: color.void },
+              // Quick, mechanical, one direction — motion stays §8-restrained.
+              animation: 'slide_from_right',
+              animationDuration: 220,
             }}
           />
         </View>

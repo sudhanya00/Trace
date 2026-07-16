@@ -437,6 +437,42 @@ describe('ride invites', () => {
   });
 });
 
+describe('live location and achievements', () => {
+  after(async () => {
+    await asha.from('live_positions').delete().eq('profile_id', ashaId);
+    await veer.from('follows').delete().eq('follower_id', veerId);
+  });
+
+  it('live position is follower-gated — public visibility does not extend here', async () => {
+    await asha.from('live_positions').upsert({
+      profile_id: ashaId,
+      geom: 'POINT(78.3 31.4)',
+      ride_started_at: new Date().toISOString(),
+    });
+    // veer is not following asha right now
+    const blind = await veer.rpc('live_position_of', { p_profile_id: ashaId });
+    assert.equal(blind.data, null, 'stranger sees nothing even though asha is public');
+
+    await veer.from('follows').insert({ follower_id: veerId, followee_id: ashaId });
+    const seen = await veer.rpc('live_position_of', { p_profile_id: ashaId });
+    assert.ok(seen.data?.point, 'accepted follower sees the live point');
+
+    const forged = await veer.from('live_positions').upsert({ profile_id: ashaId, geom: 'POINT(0 0)' });
+    assert.ok(forged.error, 'nobody writes someone else’s position');
+  });
+
+  it('achievements are awarded by the server and refused from clients', async () => {
+    const { data: mine } = await asha.from('achievements').select('key').eq('profile_id', ashaId);
+    const keys = mine.map((a) => a.key);
+    assert.ok(keys.includes('rides_1'), 'first ride awarded (seed data)');
+    assert.ok(keys.includes('km_10000'), 'lifetime tier from the Himalayan odometer');
+    assert.ok(keys.includes('routes_1'), 'route shared');
+
+    const grab = await asha.from('achievements').insert({ profile_id: ashaId, key: 'km_50000' });
+    assert.ok(grab.error, 'self-award rejected');
+  });
+});
+
 describe('server-side distance and odometer', () => {
   it('distance sums segments only — the gap span is never counted', async () => {
     // Two ~1.1km meridian segments with a ~1.1km hole between them.

@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
+import { Badges } from '../src/components/Badges';
 import { PushButton } from '../src/components/PushButton';
 import { Card, Field, MonoLabel } from '../src/components/ui';
 import { useAuth } from '../src/lib/auth';
@@ -69,6 +70,8 @@ export default function ProfileScreen() {
           />
         </View>
       </Card>
+
+      <Badges profileId={profile.id} />
 
       <PushButton
         label="Privacy zones"

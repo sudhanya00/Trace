@@ -66,6 +66,7 @@ export default function BikeDetail() {
             year: bike.year,
             mods: bike.mods,
             current_odometer_km: Number(bike.current_odometer_km),
+            type: bike.type,
           }}
           submitLabel="Save changes"
           onSubmit={save}

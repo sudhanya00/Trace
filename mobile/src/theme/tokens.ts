@@ -23,16 +23,18 @@ export const color = {
 
 /**
  * Loaded in the root layout via @expo-google-fonts. Use these family names,
- * never raw strings, so a font swap is one edit.
+ * never raw strings, so a font swap is one edit — which is exactly what
+ * happened on 2026-07-16: Barlow Condensed/Archivo → Chakra Petch/Saira
+ * (user decision — angular moto-dashboard identity over generic condensed).
  */
 export const font = {
-  display: 'BarlowCondensed_700Bold',
-  displaySemi: 'BarlowCondensed_600SemiBold',
-  displayMedium: 'BarlowCondensed_500Medium',
-  body: 'Archivo_400Regular',
-  bodyMedium: 'Archivo_500Medium',
-  bodySemi: 'Archivo_600SemiBold',
-  bodyBold: 'Archivo_700Bold',
+  display: 'ChakraPetch_700Bold',
+  displaySemi: 'ChakraPetch_600SemiBold',
+  displayMedium: 'ChakraPetch_500Medium',
+  body: 'Saira_400Regular',
+  bodyMedium: 'Saira_500Medium',
+  bodySemi: 'Saira_600SemiBold',
+  bodyBold: 'Saira_700Bold',
   mono: 'JetBrainsMono_400Regular',
   monoMedium: 'JetBrainsMono_500Medium',
   monoBold: 'JetBrainsMono_700Bold',

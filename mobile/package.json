@@ -5,7 +5,9 @@
   "dependencies": {
     "@expo-google-fonts/archivo": "^0.4.2",
     "@expo-google-fonts/barlow-condensed": "^0.4.1",
+    "@expo-google-fonts/chakra-petch": "^0.4.1",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
+    "@expo-google-fonts/saira": "^0.4.2",
     "@expo/vector-icons": "^15.0.2",
     "@maplibre/maplibre-react-native": "^11.3.6",
     "@react-native-async-storage/async-storage": "2.2.0",

@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { View, ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 
-import { BikeInput } from '../lib/db';
+import { BikeInput, BikeType } from '../lib/db';
+import { color, font } from '../theme/tokens';
 import { PushButton } from './PushButton';
-import { Field } from './ui';
+import { Field, MonoLabel } from './ui';
+
+const TYPES: BikeType[] = ['naked', 'sport', 'adv', 'cruiser', 'scrambler', 'tourer'];
 
 /**
  * Shared bike form — onboarding, add, and edit all use the same fields.
@@ -30,6 +33,7 @@ export function BikeForm({
     initial?.current_odometer_km != null ? String(initial.current_odometer_km) : ''
   );
   const [mods, setMods] = useState(initial?.mods ?? '');
+  const [type, setType] = useState<BikeType | null>(initial?.type ?? null);
 
   const yearNum = year.trim() ? Number(year.trim()) : null;
   const odoNum = odo.trim() ? Number(odo.trim().replace(',', '.')) : 0;
@@ -50,6 +54,21 @@ export function BikeForm({
       </View>
       <Field label="Mods" value={mods} onChangeText={setMods} placeholder="Rally footpegs, aux lights" autoCapitalize="sentences" style={{ marginTop: 18 }} />
 
+      <MonoLabel size={8.5} style={{ marginTop: 18, marginBottom: 8 }}>
+        Type — sets your marker on the trace map
+      </MonoLabel>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {TYPES.map((t) => (
+          <Pressable
+            key={t}
+            onPress={() => setType(type === t ? null : t)}
+            style={[st.chip, type === t && st.chipOn]}
+          >
+            <Text style={[st.chipText, type === t && { color: color.signal }]}>{t.toUpperCase()}</Text>
+          </Pressable>
+        ))}
+      </View>
+
       <PushButton
         label={submitLabel}
         onPress={() =>
@@ -59,6 +78,7 @@ export function BikeForm({
             year: yearNum,
             mods: mods.trim() || null,
             current_odometer_km: odoNum,
+            type,
           })
         }
         disabled={busy || !valid}
@@ -67,3 +87,16 @@ export function BikeForm({
     </View>
   );
 }
+
+const st = StyleSheet.create({
+  chip: {
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  chipOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
+  chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
+});
