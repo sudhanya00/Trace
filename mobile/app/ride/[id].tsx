@@ -1,0 +1,251 @@
+import * as Battery from 'expo-battery';
+import * as Device from 'expo-device';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { PushButton } from '../../src/components/PushButton';
+import { RideMap, Segments } from '../../src/components/RideMap';
+import { DataCell, Field, MonoLabel } from '../../src/components/ui';
+import { useAuth } from '../../src/lib/auth';
+import {
+  getBike,
+  getRide,
+  ownTrackSegments,
+  Ride,
+  submitRecordingReport,
+  updateRide,
+} from '../../src/lib/db';
+import { listLocalRides, LocalRide, pointsForRide, rideState } from '../../src/lib/localdb';
+import { color, font, layout } from '../../src/theme/tokens';
+
+type Detail =
+  | { source: 'server'; ride: Ride; segments: Segments | null }
+  | {
+      source: 'local';
+      ride: LocalRide;
+      segments: Segments;
+      distanceKm: number;
+      gapCount: number;
+      gapDurationS: number;
+    };
+
+function fmtDuration(ms: number): string {
+  const m = Math.round(ms / 60000);
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+}
+
+export default function RideDetail() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { session } = useAuth();
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [bikeName, setBikeName] = useState<string | null>(null);
+  const [title, setTitle] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    (async () => {
+      // Local first: an unsynced ride only exists here. Same uuid becomes the
+      // server id after sync, so this route serves both lives of a ride.
+      const local = listLocalRides().find((r) => r.id === id && r.sync_state !== 'synced');
+      if (local) {
+        const pts = pointsForRide(local.id);
+        const segs = new Map<number, [number, number][]>();
+        for (const p of pts) {
+          const arr = segs.get(p.segment_seq) ?? [];
+          arr.push([p.lng, p.lat]);
+          segs.set(p.segment_seq, arr);
+        }
+        const s = rideState(local.id);
+        if (!alive) return;
+        setDetail({
+          source: 'local',
+          ride: local,
+          segments: [...segs.values()],
+          distanceKm: s ? s.distance_m / 1000 : 0,
+          gapCount: s?.gap_count ?? 0,
+          gapDurationS: s?.gap_duration_s ?? 0,
+        });
+        if (local.bike_id) getBike(local.bike_id).then((b) => alive && setBikeName(b ? `${b.make} ${b.model}` : null)).catch(() => {});
+        return;
+      }
+      const ride = await getRide(id);
+      if (!ride || !alive) return;
+      setTitle(ride.title ?? '');
+      setNote(ride.note ?? '');
+      const segments = await ownTrackSegments(ride.id).catch(() => null);
+      if (!alive) return;
+      setDetail({ source: 'server', ride, segments });
+      if (ride.bike_id) getBike(ride.bike_id).then((b) => alive && setBikeName(b ? `${b.make} ${b.model}` : null)).catch(() => {});
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  if (!detail) return <View style={st.root} />;
+
+  const isServer = detail.source === 'server';
+  const started = new Date(isServer ? detail.ride.started_at : detail.ride.started_at);
+  const ended = isServer
+    ? new Date((detail.ride as Ride).ended_at)
+    : new Date((detail.ride as LocalRide).ended_at ?? (detail.ride as LocalRide).started_at);
+  const distanceKm = isServer ? Number((detail.ride as Ride).distance_km) : detail.distanceKm;
+  const gapCount = isServer ? (detail.ride as Ride).gap_count : detail.gapCount;
+  const gapDurationS = isServer ? (detail.ride as Ride).gap_duration_s : detail.gapDurationS;
+  const segments = detail.segments ?? [];
+  const isManual = isServer && segments.length === 0 && gapCount === 0 && +started === +ended;
+
+  const save = async () => {
+    if (!isServer) return;
+    setBusy(true);
+    try {
+      await updateRide(detail.ride.id, { title: title.trim() || null, note: note.trim() || null });
+      router.back();
+    } catch (e) {
+      Alert.alert('Could not save', (e as Error).message);
+      setBusy(false);
+    }
+  };
+
+  const report = () => {
+    Alert.alert(
+      'Report bad recording?',
+      'Sends us the point log for this ride with your device model — nothing else. It goes straight into fixing GPS.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send report',
+          onPress: async () => {
+            try {
+              const battery = await Battery.getBatteryLevelAsync().catch(() => null);
+              const localPoints = pointsForRide(id!);
+              await submitRecordingReport(
+                session!.user.id,
+                isServer ? detail.ride.id : null,
+                {
+                  manufacturer: Device.manufacturer,
+                  model: Device.modelName,
+                  os: Device.osName,
+                  osVersion: Device.osVersion,
+                  battery,
+                },
+                {
+                  ride_id: id,
+                  synced: isServer,
+                  gap_count: gapCount,
+                  gap_duration_s: gapDurationS,
+                  // Unsynced rides still hold the raw log locally; synced rides
+                  // already have their geometry server-side.
+                  points: localPoints.slice(0, 5000),
+                }
+              );
+              Alert.alert('Report sent', 'Thank you — this is exactly what tunes the recorder.');
+            } catch (e) {
+              Alert.alert('Could not send', (e as Error).message);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: color.void }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
+        <MonoLabel size={9.5}>
+          {started.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()}
+          {bikeName ? ` — ${bikeName.toUpperCase()}` : ''}
+        </MonoLabel>
+        <Text style={st.h1}>
+          {(isServer && (detail.ride as Ride).title) || (isManual ? 'Manual ride' : 'Ride')}
+        </Text>
+
+        {segments.length > 0 && <RideMap segments={segments} style={{ marginTop: 20 }} />}
+
+        <View style={st.strip}>
+          <DataCell first label="Distance" value={distanceKm.toFixed(1)} unit="km" />
+          {!isManual && <DataCell label="Duration" value={fmtDuration(+ended - +started)} />}
+          {gapCount > 0 && <DataCell label="Gaps" value={String(gapCount)} />}
+        </View>
+
+        {gapCount > 0 && (
+          <View style={st.gapRow}>
+            <View style={st.gapDash} />
+            <Text style={st.gapText}>
+              <Text style={st.gapStrong}>
+                Recording was interrupted{' '}
+                {gapCount === 1 ? 'once' : `${gapCount} times`} for ~
+                {Math.max(1, Math.round(gapDurationS / 60))} min
+              </Text>
+              {' — those sections aren’t counted.'}
+            </Text>
+          </View>
+        )}
+
+        {detail.source === 'local' && (
+          <Text style={st.pendingNote}>
+            Waiting to sync — the title and note unlock once this ride reaches the server.
+          </Text>
+        )}
+
+        {isServer && (
+          <>
+            <Field label="Title" value={title} onChangeText={setTitle} placeholder="Sangla to Chitkul" autoCapitalize="sentences" style={{ marginTop: 26 }} />
+            <Field label="Note" value={note} onChangeText={setNote} placeholder="Broken tarmac after the bridge." autoCapitalize="sentences" style={{ marginTop: 16 }} />
+            <PushButton label="Save" variant="slate" onPress={save} disabled={busy} style={{ marginTop: 22 }} />
+            <PushButton label="Share as route" onPress={() => {}} disabled style={{ marginTop: 26 }} />
+            <MonoLabel size={8} style={{ alignSelf: 'center', marginTop: 8, color: color.dim }}>
+              Route sharing — next build
+            </MonoLabel>
+          </>
+        )}
+
+        {!isManual && (
+          <Pressable onPress={report} style={st.reportRow}>
+            <Text style={st.reportText}>Something wrong with this track? Report bad recording →</Text>
+          </Pressable>
+        )}
+
+        <Pressable onPress={() => router.back()} style={st.back}>
+          <Text style={st.backText}>Back</Text>
+        </Pressable>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const st = StyleSheet.create({
+  root: { flex: 1, backgroundColor: color.void },
+  content: { paddingHorizontal: layout.screenPadding, paddingTop: 72, paddingBottom: 60 },
+  h1: {
+    fontFamily: font.display,
+    fontSize: 34,
+    color: color.white,
+    textTransform: 'uppercase',
+    marginTop: 7,
+    lineHeight: 36,
+  },
+  strip: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: color.hair,
+    marginTop: 20,
+  },
+  gapRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 13 },
+  gapDash: { width: 18, borderTopWidth: 1.5, borderStyle: 'dashed', borderColor: color.signal, opacity: 0.7 },
+  gapText: { flex: 1, fontFamily: font.body, fontSize: 11, color: color.steel, lineHeight: 15 },
+  gapStrong: { color: '#B9C0C3', fontFamily: font.bodyMedium },
+  pendingNote: { fontFamily: font.body, fontSize: 12, color: color.steel, lineHeight: 17, marginTop: 22 },
+  reportRow: { marginTop: 30, paddingVertical: 6 },
+  reportText: { fontFamily: font.bodyMedium, fontSize: 12, color: color.steel },
+  back: { alignSelf: 'center', marginTop: 18, padding: 8 },
+  backText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
+});

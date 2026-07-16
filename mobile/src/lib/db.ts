@@ -127,3 +127,74 @@ export async function listRidesForBike(bikeId: string): Promise<Ride[]> {
   if (error) throw error;
   return data ?? [];
 }
+
+export async function listMyRides(userId: string): Promise<Ride[]> {
+  const { data, error } = await supabase
+    .from('rides')
+    .select('*')
+    .eq('profile_id', userId)
+    .order('started_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getRide(id: string): Promise<Ride | null> {
+  const { data, error } = await supabase.from('rides').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateRide(
+  id: string,
+  patch: Partial<Pick<Ride, 'title' | 'note' | 'bike_id'>>
+): Promise<Ride> {
+  const { data, error } = await supabase.from('rides').update(patch).eq('id', id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+/** Canonical server geometry for the caller's own ride (RLS applies). */
+export async function ownTrackSegments(rideId: string): Promise<[number, number][][] | null> {
+  const { data, error } = await supabase.rpc('own_track_geojson', { p_ride_id: rideId });
+  if (error) throw error;
+  if (!data || data.type !== 'MultiLineString') return null;
+  return data.coordinates as [number, number][][];
+}
+
+/** §12b manual entry: distance + date + bike, no track. Keeps the odometer
+ *  honest when recording fails — distance_km is client-set by design here,
+ *  and the odometer trigger picks it up like any other ride. */
+export async function createManualRide(
+  userId: string,
+  input: { bike_id: string | null; date: Date; distance_km: number; title: string | null }
+): Promise<Ride> {
+  const at = new Date(input.date);
+  at.setHours(12, 0, 0, 0);
+  const { data, error } = await supabase
+    .from('rides')
+    .insert({
+      profile_id: userId,
+      bike_id: input.bike_id,
+      started_at: at.toISOString(),
+      ended_at: at.toISOString(),
+      distance_km: input.distance_km,
+      title: input.title,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** §12b: one-tap report — the feedback loop that fixes GPS. */
+export async function submitRecordingReport(
+  userId: string,
+  rideId: string | null,
+  device: object,
+  payload: object
+): Promise<void> {
+  const { error } = await supabase
+    .from('recording_reports')
+    .insert({ profile_id: userId, ride_id: rideId, device, payload });
+  if (error) throw error;
+}

@@ -53,7 +53,8 @@
           "imageWidth": 160
         }
       ],
-      "@sentry/react-native"
+      "@sentry/react-native",
+      "@maplibre/maplibre-react-native"
     ],
     "experiments": {
       "typedRoutes": true
