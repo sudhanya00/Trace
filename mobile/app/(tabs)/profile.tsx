@@ -71,10 +71,16 @@ export default function ProfileScreen() {
       </Card>
 
       <PushButton
+        label="Privacy zones"
+        variant="slate"
+        onPress={() => router.push('/privacy-zones')}
+        style={{ marginTop: 30 }}
+      />
+      <PushButton
         label="Settings"
         variant="slate"
         onPress={() => router.push('/settings')}
-        style={{ marginTop: 30 }}
+        style={{ marginTop: 12 }}
       />
     </ScrollView>
   );

@@ -291,6 +291,53 @@ export async function uploadRoutePhoto(
   return supabase.storage.from('route-photos').getPublicUrl(path).data.publicUrl;
 }
 
+export type PrivacyZone = {
+  id: string;
+  profile_id: string;
+  label: string | null;
+  created_at: string;
+};
+
+export async function listPrivacyZones(): Promise<PrivacyZone[]> {
+  // Deliberately never selects the area geometry — the app doesn't need to
+  // re-render the exact home polygon anywhere outside the editor.
+  const { data, error } = await supabase
+    .from('privacy_zones')
+    .select('id, profile_id, label, created_at')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Zones are circles to the rider, polygons to PostGIS: a 32-gon around the
+ *  chosen center. Clipping applies at read time from the moment this row
+ *  exists — no reprocessing, past rides included. */
+export async function createPrivacyZone(
+  userId: string,
+  label: string | null,
+  centerLng: number,
+  centerLat: number,
+  radiusM: number
+): Promise<void> {
+  const pts: string[] = [];
+  const dLat = radiusM / 111320;
+  const dLng = radiusM / (111320 * Math.cos((centerLat * Math.PI) / 180));
+  for (let i = 0; i <= 32; i++) {
+    const a = (i / 32) * 2 * Math.PI;
+    pts.push(`${(centerLng + dLng * Math.cos(a)).toFixed(6)} ${(centerLat + dLat * Math.sin(a)).toFixed(6)}`);
+  }
+  const wkt = `POLYGON((${pts.join(', ')}))`;
+  const { error } = await supabase
+    .from('privacy_zones')
+    .insert({ profile_id: userId, label, area: wkt });
+  if (error) throw error;
+}
+
+export async function deletePrivacyZone(id: string): Promise<void> {
+  const { error } = await supabase.from('privacy_zones').delete().eq('id', id);
+  if (error) throw error;
+}
+
 /** §12b: one-tap report — the feedback loop that fixes GPS. */
 export async function submitRecordingReport(
   userId: string,
