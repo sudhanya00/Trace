@@ -17,10 +17,11 @@ import { supabase } from '../src/lib/supabase';
 import { color, font, layout } from '../src/theme/tokens';
 
 /**
- * Phone-first sign-in (user decision 2026-07-16): number → code → riding.
- * No passwords. Email stays as the fallback door for existing accounts and
- * the odd rider without reliable SMS.
+ * Sign-in. Email is primary for the tester phase (user decision 2026-07-17);
+ * the phone-OTP flow is built, tested, and parked behind this flag until an
+ * SMS provider is configured for production — flip it and phone leads again.
  */
+const PHONE_AUTH_ENABLED = false;
 
 /** "98765 43210" → "+919876543210"; anything already-international passes through. */
 function normalizePhone(raw: string): string | null {
@@ -31,7 +32,9 @@ function normalizePhone(raw: string): string | null {
 }
 
 export default function Auth() {
-  const [step, setStep] = useState<'phone' | 'code' | 'email'>('phone');
+  const [step, setStep] = useState<'phone' | 'code' | 'email'>(
+    PHONE_AUTH_ENABLED ? 'phone' : 'email'
+  );
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [email, setEmail] = useState('');
@@ -187,9 +190,11 @@ export default function Auth() {
                 {emailMode === 'in' ? 'New here? Create an account' : 'Have an account? Sign in'}
               </Text>
             </Pressable>
-            <Pressable onPress={() => setStep('phone')} style={st.switch}>
-              <Text style={st.switchText}>Use phone instead</Text>
-            </Pressable>
+            {PHONE_AUTH_ENABLED && (
+              <Pressable onPress={() => setStep('phone')} style={st.switch}>
+                <Text style={st.switchText}>Use phone instead</Text>
+              </Pressable>
+            )}
           </>
         )}
       </ScrollView>
