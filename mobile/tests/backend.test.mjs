@@ -257,6 +257,51 @@ describe('route threads and condition reports', () => {
   });
 });
 
+describe('notifications', () => {
+  after(async () => {
+    await asha.from('follows').delete().eq('follower_id', ashaId);
+    await veer.from('follows').delete().eq('follower_id', veerId);
+    await veer.from('notifications').delete().neq('id', crypto.randomUUID());
+    await asha.from('notifications').delete().neq('id', crypto.randomUUID());
+  });
+
+  it('a follow request lands in the followee’s inbox; the accept lands in the follower’s', async () => {
+    await asha.from('follows').insert({ follower_id: ashaId, followee_id: veerId });
+    const veerInbox = await veer.from('notifications').select('title, data').order('created_at', { ascending: false });
+    assert.ok(veerInbox.data.some((n) => n.title.includes('asked to follow')), 'request notification');
+
+    await veer.from('follows').update({ state: 'accepted' }).eq('follower_id', ashaId);
+    const ashaInbox = await asha.from('notifications').select('title').order('created_at', { ascending: false });
+    assert.ok(ashaInbox.data.some((n) => n.title.includes('accepted your follow')), 'accept notification');
+  });
+
+  it('a comment on your route notifies you — commenting on your own does not', async () => {
+    await asha.from('notifications').delete().neq('id', crypto.randomUUID());
+    await veer
+      .from('route_comments')
+      .insert({ route_id: ASHA_ROUTE, profile_id: veerId, body: 'test: notification ping' });
+    const inbox = await asha.from('notifications').select('title, body');
+    assert.ok(inbox.data.some((n) => n.body?.includes('notification ping')), 'owner notified');
+
+    await asha.from('notifications').delete().neq('id', crypto.randomUUID());
+    await asha
+      .from('route_comments')
+      .insert({ route_id: ASHA_ROUTE, profile_id: ashaId, body: 'test: own comment' });
+    const inbox2 = await asha.from('notifications').select('id');
+    assert.equal(inbox2.data.length, 0, 'no self-notification');
+    await veer.from('route_comments').delete().like('body', 'test:%');
+    await asha.from('route_comments').delete().like('body', 'test:%');
+  });
+
+  it('inbox and tokens are private to their owner', async () => {
+    const cross = await veer.from('notifications').select('id').eq('profile_id', ashaId);
+    assert.equal(cross.data.length, 0);
+    const tok = await veer.from('push_tokens').insert({ token: 'test-token-veer', profile_id: ashaId });
+    assert.ok(tok.error, 'cannot register a token for someone else');
+    await veer.from('push_tokens').delete().eq('token', 'test-token-veer');
+  });
+});
+
 describe('server-side distance and odometer', () => {
   it('distance sums segments only — the gap span is never counted', async () => {
     // Two ~1.1km meridian segments with a ~1.1km hole between them.

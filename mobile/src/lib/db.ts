@@ -478,6 +478,30 @@ export async function addConditionReport(
   if (error) throw error;
 }
 
+export type AppNotification = {
+  id: string;
+  title: string;
+  body: string | null;
+  data: { url?: string };
+  read: boolean;
+  created_at: string;
+};
+
+export async function listNotifications(): Promise<AppNotification[]> {
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('id, title, body, data, read, created_at')
+    .order('created_at', { ascending: false })
+    .limit(30);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  const { error } = await supabase.from('notifications').update({ read: true }).eq('id', id);
+  if (error) throw error;
+}
+
 /** §12b: one-tap report — the feedback loop that fixes GPS. */
 export async function submitRecordingReport(
   userId: string,

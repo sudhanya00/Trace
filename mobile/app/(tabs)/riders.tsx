@@ -7,9 +7,12 @@ import { Field, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
   acceptFollow,
+  AppNotification,
   declineFollow,
   FollowEdge,
   followEdges,
+  listNotifications,
+  markNotificationRead,
   Profile,
   searchRiders,
 } from '../../src/lib/db';
@@ -24,12 +27,22 @@ export default function Riders() {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Profile[]>([]);
   const [edges, setEdges] = useState<FollowEdge[]>([]);
+  const [inbox, setInbox] = useState<AppNotification[]>([]);
 
   const loadEdges = useCallback(() => {
     followEdges().then(setEdges).catch(() => {});
+    listNotifications().then(setInbox).catch(() => {});
   }, []);
 
   useFocusEffect(loadEdges);
+
+  const openNotification = async (n: AppNotification) => {
+    markNotificationRead(n.id).catch(() => {});
+    setInbox((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+    if (n.data.url) router.push(n.data.url as never);
+  };
+
+  const unread = inbox.filter((n) => !n.read);
 
   useEffect(() => {
     if (!session || q.trim().length < 2) {
@@ -75,6 +88,27 @@ export default function Riders() {
             </View>
           )}
         </Pressable>
+      )}
+
+      {unread.length > 0 && (
+        <>
+          <MonoLabel size={9} style={st.section}>
+            New
+          </MonoLabel>
+          {unread.map((n) => (
+            <Pressable key={n.id} onPress={() => openNotification(n)}>
+              {({ pressed }) => (
+                <View style={[st.row, pressed && { backgroundColor: color.slate }]}>
+                  <View style={st.unreadDot} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.rowName}>{n.title}</Text>
+                    {n.body ? <Text style={st.rowSub}>{n.body}</Text> : null}
+                  </View>
+                </View>
+              )}
+            </Pressable>
+          ))}
+        </>
       )}
 
       <Field
@@ -221,4 +255,5 @@ const st = StyleSheet.create({
   },
   smallBtnOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
   smallBtnText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2, color: color.steel },
+  unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.signal },
 });

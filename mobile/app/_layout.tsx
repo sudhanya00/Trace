@@ -17,14 +17,16 @@ import {
 import * as Sentry from '@sentry/react-native';
 import { useFonts } from 'expo-font';
 import * as Network from 'expo-network';
-import { Stack } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { PostHogProvider } from 'posthog-react-native';
 import { ReactNode, useEffect } from 'react';
 import { AppState, View } from 'react-native';
 
-import { SessionProvider } from '../src/lib/auth';
+import { SessionProvider, useAuth } from '../src/lib/auth';
+import { registerPushToken } from '../src/lib/push';
 import { syncPendingRides } from '../src/lib/sync';
 import { color } from '../src/theme/tokens';
 
@@ -46,6 +48,27 @@ function Analytics({ children }: { children: ReactNode }) {
 }
 
 SplashScreen.preventAutoHideAsync();
+
+/** Registers the push token once signed in, and routes notification taps. */
+function PushWiring() {
+  const { session } = useAuth();
+
+  useEffect(() => {
+    if (session) registerPushToken(session.user.id);
+  }, [session?.user.id]);
+
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const url = response.notification.request.content.data?.url;
+      if (typeof url === 'string' && url.startsWith('/')) {
+        router.push(url as never);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  return null;
+}
 
 function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -86,6 +109,7 @@ function RootLayout() {
   return (
     <Analytics>
       <SessionProvider>
+        <PushWiring />
         <View style={{ flex: 1, backgroundColor: color.void }}>
           <StatusBar style="light" />
           <Stack
