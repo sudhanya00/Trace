@@ -52,6 +52,15 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="trace"
+        options={{
+          title: 'TRACE',
+          tabBarIcon: ({ focused }) => (
+            <Feather name="activity" size={19} color={focused ? color.signal : color.dim} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="record"
         options={{
           title: 'RECORD',
