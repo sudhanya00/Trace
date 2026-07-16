@@ -97,7 +97,8 @@ function BikeCard({ bike, rides, isCurrent }: { bike: Bike; rides: number; isCur
   const sub = [bike.year, bike.mods].filter(Boolean).join(' · ');
   return (
     <Pressable onPress={() => router.push(`/bike/${bike.id}`)}>
-      <Card active={isCurrent} style={{ marginBottom: 12 }}>
+      {({ pressed }) => (
+      <Card active={isCurrent} pressed={pressed} style={{ marginBottom: 12 }}>
         <View style={st.bikeTop}>
           <View style={{ flex: 1, paddingRight: 10 }}>
             <Text style={st.bikeName}>
@@ -112,6 +113,7 @@ function BikeCard({ bike, rides, isCurrent }: { bike: Bike; rides: number; isCur
           <Stat label="Rides" value={String(rides)} />
         </View>
       </Card>
+      )}
     </Pressable>
   );
 }
@@ -167,7 +169,7 @@ const st = StyleSheet.create({
   },
   totalUnit: { fontSize: 11, color: color.steel, fontFamily: font.displayMedium },
 
-  list: { padding: layout.screenPadding, paddingTop: 18, paddingBottom: 40 },
+  list: { padding: layout.screenPadding, paddingTop: 18, paddingBottom: 110 },
   bikeTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
   bikeName: {
     fontFamily: font.display,

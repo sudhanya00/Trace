@@ -17,9 +17,16 @@ import {
 
 import { Odometer } from '../../src/components/Odometer';
 import { PushButton } from '../../src/components/PushButton';
+import { TrackBed } from '../../src/components/TrackBed';
 import { MonoLabel } from '../../src/components/ui';
 import { Bike, listBikes } from '../../src/lib/db';
-import { LocalRide, recordingRide, rideState, RideState } from '../../src/lib/localdb';
+import {
+  LocalRide,
+  pointsForRide,
+  recordingRide,
+  rideState,
+  RideState,
+} from '../../src/lib/localdb';
 import {
   AUTO_PAUSE_MS,
   finalizeInterrupted,
@@ -46,28 +53,41 @@ type Phase =
 export default function Record() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const [state, setState] = useState<RideState | null>(null);
+  const [trackPoints, setTrackPoints] = useState<
+    { lat: number; lng: number; segment_seq: number }[]
+  >([]);
   const [bikes, setBikes] = useState<Bike[]>([]);
   const [bikeId, setBikeId] = useState<string | null>(null);
   const [explainerOpen, setExplainerOpen] = useState(false);
   const [foregroundOnly, setForegroundOnly] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [sweepKey, setSweepKey] = useState(0);
 
   const refresh = useCallback(async () => {
     const ride = recordingRide();
     if (!ride) {
       setPhase({ kind: 'idle' });
       setState(null);
+      setTrackPoints([]);
       return;
     }
     const running = await isRecordingTaskRunning();
     setPhase(running ? { kind: 'recording', ride } : { kind: 'interrupted', ride });
     setState(rideState(ride.id));
+    // Downsample for the bed: the SVG needs the shape, not every fix.
+    const pts = pointsForRide(ride.id);
+    const stride = Math.max(1, Math.ceil(pts.length / 300));
+    setTrackPoints(
+      pts.filter((_, i) => i % stride === 0 || i === pts.length - 1)
+        .map((p) => ({ lat: p.lat, lng: p.lng, segment_seq: p.segment_seq }))
+    );
     setNow(Date.now());
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       refresh();
+      setSweepKey((k) => k + 1); // ignition sweep on every visit to the dial
       const bikesLoad = listBikes()
         .then((b) => {
           const active = b.filter((x) => x.is_active);
@@ -148,6 +168,9 @@ export default function Record() {
 
   return (
     <View style={st.root}>
+      {/* map bed: real recorded points behind everything, scrimmed (§8) */}
+      <TrackBed points={trackPoints} />
+
       {/* top row: live indicator / GPS status */}
       <View style={st.top}>
         {phase.kind === 'recording' ? (
@@ -171,7 +194,7 @@ export default function Record() {
           Distance — this ride
         </MonoLabel>
         <View style={st.odoRow}>
-          <Odometer km={distanceKm} />
+          <Odometer km={distanceKm} sweepKey={sweepKey} />
           <Text style={st.unit}>km</Text>
         </View>
       </View>
@@ -419,7 +442,7 @@ const st = StyleSheet.create({
   interruptedTitle: { fontFamily: font.bodySemi, fontSize: 14, color: color.amber },
   interruptedBody: { fontFamily: font.body, fontSize: 12, color: color.steel, lineHeight: 17, marginTop: 6 },
 
-  ctrl: { padding: layout.screenPadding, paddingBottom: 34, marginTop: 20 },
+  ctrl: { padding: layout.screenPadding, paddingBottom: 100, marginTop: 20 },
 
   modalScrim: {
     flex: 1,

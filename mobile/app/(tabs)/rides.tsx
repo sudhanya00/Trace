@@ -101,7 +101,7 @@ const st = StyleSheet.create({
   },
   empty: { flex: 1, paddingHorizontal: layout.screenPadding, paddingTop: 48 },
   emptyText: { fontFamily: font.body, color: color.steel, fontSize: 13, lineHeight: 19 },
-  list: { padding: layout.screenPadding, paddingTop: 20 },
+  list: { padding: layout.screenPadding, paddingTop: 20, paddingBottom: 110 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Tabs } from 'expo-router';
 
 import { color, font } from '../../src/theme/tokens';
@@ -13,13 +14,22 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: color.void },
+        // Floating over a fade, like the reference — no hard border line.
         tabBarStyle: {
-          backgroundColor: color.void,
-          borderTopColor: color.hair,
-          borderTopWidth: 1,
-          height: 78,
-          paddingTop: 8,
+          position: 'absolute',
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
+          elevation: 0,
+          height: 84,
+          paddingTop: 14,
         },
+        tabBarBackground: () => (
+          <LinearGradient
+            colors={['rgba(11,13,14,0)', color.void]}
+            locations={[0, 0.42]}
+            style={{ flex: 1 }}
+          />
+        ),
         // Prototype: active icon is signal, active label is white.
         tabBarActiveTintColor: color.white,
         tabBarInactiveTintColor: color.dim,

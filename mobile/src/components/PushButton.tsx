@@ -56,7 +56,12 @@ export function PushButton({
       ]}
     >
       <Animated.View
-        style={[st.face, face, { height, transform: [{ translateY: travel }] }]}
+        style={[
+          st.face,
+          face,
+          variant === 'signal' && st.glow,
+          { height, transform: [{ translateY: travel }] },
+        ]}
       >
         <Text style={[st.label, { fontSize: Math.max(16, Math.round(height * 0.3)) }]}>
           {label}
@@ -78,5 +83,9 @@ const st = StyleSheet.create({
     color: '#F2F7FF',
     letterSpacing: 3,
     textTransform: 'uppercase',
+  },
+  // The reference's signal-button halo: 0 14px 30px rgba(46,125,255,.32).
+  glow: {
+    boxShadow: '0 14px 30px rgba(46, 125, 255, 0.32)',
   },
 });

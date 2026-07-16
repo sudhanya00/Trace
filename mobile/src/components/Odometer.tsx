@@ -32,6 +32,7 @@ function Digit({
   fontSize,
   delayMs,
   reduced,
+  staggered = false,
 }: {
   value: number;
   height: number;
@@ -39,6 +40,8 @@ function Digit({
   fontSize: number;
   delayMs: number;
   reduced: boolean;
+  /** Apply the stagger delay on every change, not just the first roll (sweep mode). */
+  staggered?: boolean;
 }) {
   const y = useRef(new Animated.Value(0)).current;
   const mounted = useRef(false);
@@ -53,12 +56,12 @@ function Digit({
       toValue: target,
       duration: motion.odometerDigitMs,
       // Stagger applies to the load roll only; live ticks move immediately.
-      delay: mounted.current ? 0 : delayMs,
+      delay: mounted.current && !staggered ? 0 : delayMs,
       easing: SETTLE,
       useNativeDriver: true,
     }).start();
     mounted.current = true;
-  }, [value, height, delayMs, reduced, y]);
+  }, [value, height, delayMs, reduced, staggered, y]);
 
   return (
     <View style={{ width, height, overflow: 'hidden' }}>
@@ -81,15 +84,30 @@ export function Odometer({
   km,
   intDigits = 3,
   height = 66,
+  sweepKey = 0,
 }: {
   km: number;
   /** Leading digit count — 84.6 with intDigits 3 reads 084.6, like a stamped odometer. */
   intDigits?: number;
   height?: number;
+  /**
+   * Bump to run an ignition sweep: every digit rolls up to 9 and settles back,
+   * staggered left→right — the cluster needle-sweep, in odometer vernacular.
+   * It's how the signature element stays alive on a screen reading 000.0.
+   */
+  sweepKey?: number;
 }) {
   const reduced = useReducedMotion();
+  const [sweeping, setSweeping] = useState(false);
   const width = Math.round(height * 0.58);
   const fontSize = Math.round(height * 0.94);
+
+  useEffect(() => {
+    if (!sweepKey || reduced) return;
+    setSweeping(true);
+    const t = setTimeout(() => setSweeping(false), 620);
+    return () => clearTimeout(t);
+  }, [sweepKey, reduced]);
 
   const clamped = Math.max(0, km);
   const whole = Math.min(Math.floor(clamped), 10 ** intDigits - 1);
@@ -101,24 +119,26 @@ export function Odometer({
       {intStr.split('').map((ch, i) => (
         <Digit
           key={`i${i}`}
-          value={Number(ch)}
+          value={sweeping ? 9 : Number(ch)}
           height={height}
           width={width}
           fontSize={fontSize}
-          delayMs={i * motion.odometerStaggerMs}
+          delayMs={i * (sweeping ? 45 : motion.odometerStaggerMs)}
           reduced={reduced}
+          staggered={sweeping}
         />
       ))}
       <Text style={[st.dot, { fontSize, lineHeight: height }]} allowFontScaling={false}>
         .
       </Text>
       <Digit
-        value={tenth}
+        value={sweeping ? 9 : tenth}
         height={height}
         width={width}
         fontSize={fontSize}
-        delayMs={intDigits * motion.odometerStaggerMs}
+        delayMs={intDigits * (sweeping ? 45 : motion.odometerStaggerMs)}
         reduced={reduced}
+        staggered={sweeping}
       />
     </View>
   );

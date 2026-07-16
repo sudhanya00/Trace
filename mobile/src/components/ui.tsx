@@ -39,18 +39,27 @@ export function MonoLabel({
   );
 }
 
-/** Card: slate fill, hairline border, 14px radius. Active = 2px signal left edge, never a glow. */
+/** Card: slate fill, hairline border, 14px radius. Active = 2px signal left edge, never a glow.
+ *  `pressed` is the reference's hover state translated to touch: border brightens, card lifts 1px. */
 export function Card({
   children,
   active = false,
+  pressed = false,
   style,
 }: {
   children: ReactNode;
   active?: boolean;
+  pressed?: boolean;
   style?: ViewStyle;
 }) {
   return (
-    <View style={[st.card, style]}>
+    <View
+      style={[
+        st.card,
+        pressed && { borderColor: 'rgba(232,234,234,.2)', transform: [{ translateY: -1 }] },
+        style,
+      ]}
+    >
       {active && <View style={st.activeEdge} />}
       {children}
     </View>
