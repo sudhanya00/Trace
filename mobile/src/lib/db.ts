@@ -613,6 +613,67 @@ export async function sendCrewMessage(userId: string, crewId: string, body: stri
   if (error) throw error;
 }
 
+export type RideInvite = {
+  id: string;
+  created_by: string;
+  handle: string;
+  crew_id: string | null;
+  route_id: string | null;
+  title: string;
+  meetup: string | null;
+  region: string | null;
+  starts_at: string;
+  rsvp_count: number;
+  i_am_in: boolean;
+};
+
+/** Upcoming invites: the public board (crewId null) or one crew's. */
+export async function listInvites(crewId: string | null): Promise<RideInvite[]> {
+  const { data, error } = await supabase.rpc('invite_list', { p_crew_id: crewId });
+  if (error) throw error;
+  return (data ?? []).map((i: RideInvite & { rsvp_count: number | string }) => ({
+    ...i,
+    rsvp_count: Number(i.rsvp_count),
+  }));
+}
+
+export async function createInvite(
+  userId: string,
+  input: {
+    crew_id: string | null;
+    title: string;
+    meetup: string | null;
+    region: string | null;
+    starts_at: Date;
+  }
+): Promise<void> {
+  const { error } = await supabase.from('ride_invites').insert({
+    created_by: userId,
+    crew_id: input.crew_id,
+    title: input.title,
+    meetup: input.meetup,
+    region: input.region,
+    starts_at: input.starts_at.toISOString(),
+  });
+  if (error) throw error;
+}
+
+export async function rsvpInvite(userId: string, inviteId: string, going: boolean): Promise<void> {
+  if (going) {
+    const { error } = await supabase
+      .from('invite_rsvps')
+      .insert({ invite_id: inviteId, profile_id: userId });
+    if (error && error.code !== '23505') throw error;
+  } else {
+    const { error } = await supabase
+      .from('invite_rsvps')
+      .delete()
+      .eq('invite_id', inviteId)
+      .eq('profile_id', userId);
+    if (error) throw error;
+  }
+}
+
 /** §12b: one-tap report — the feedback loop that fixes GPS. */
 export async function submitRecordingReport(
   userId: string,

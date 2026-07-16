@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { InviteCard } from '../../src/components/InviteCard';
 import { PushButton } from '../../src/components/PushButton';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
@@ -23,6 +24,9 @@ import {
   crewRoster,
   joinCrew,
   leaveCrew,
+  listInvites,
+  RideInvite,
+  rsvpInvite,
   sendCrewMessage,
 } from '../../src/lib/db';
 import { supabase } from '../../src/lib/supabase';
@@ -41,6 +45,7 @@ export default function CrewRoom() {
   const [messages, setMessages] = useState<CrewMessage[]>([]);
   const [member, setMember] = useState(false);
   const [draft, setDraft] = useState('');
+  const [invites, setInvites] = useState<RideInvite[]>([]);
   const rosterRef = useRef(roster);
   rosterRef.current = roster;
 
@@ -52,6 +57,7 @@ export default function CrewRoom() {
     setRoster(new Map(r.map((m) => [m.profile_id, m])));
     setMember(r.some((m) => m.profile_id === session.user.id));
     setMessages(await crewChat(id).catch(() => []));
+    setInvites(await listInvites(id).catch(() => []));
   }, [id, session]);
 
   useEffect(() => {
@@ -150,6 +156,24 @@ export default function CrewRoom() {
 
       {member ? (
         <>
+          {invites.length > 0 && (
+            <View style={st.invitesStrip}>
+              {invites.slice(0, 2).map((i) => (
+                <InviteCard
+                  key={i.id}
+                  invite={i}
+                  onToggle={async (going) => {
+                    if (!session) return;
+                    await rsvpInvite(session.user.id, i.id, going).catch(() => {});
+                    setInvites(await listInvites(id!).catch(() => invites));
+                  }}
+                />
+              ))}
+            </View>
+          )}
+          <Pressable onPress={() => router.push(`/invite/new?crewId=${id}`)} style={st.planRow}>
+            <Text style={st.planText}>+ PLAN A RIDE</Text>
+          </Pressable>
           <FlatList
             inverted
             data={messages}
@@ -276,6 +300,9 @@ const st = StyleSheet.create({
   leaveRow: { alignSelf: 'center', paddingVertical: 10 },
   leaveText: { fontFamily: font.body, fontSize: 11.5, color: color.dim },
 
+  invitesStrip: { paddingHorizontal: layout.screenPadding, paddingTop: 12 },
+  planRow: { alignSelf: 'flex-end', paddingHorizontal: layout.screenPadding, paddingVertical: 8 },
+  planText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
   joinWrap: { flex: 1, paddingHorizontal: layout.screenPadding, paddingTop: 26 },
   desc: { fontFamily: font.body, fontSize: 13.5, color: '#B9C0C3', lineHeight: 20 },
   joinNote: { fontFamily: font.body, fontSize: 12, color: color.steel, marginTop: 12 },

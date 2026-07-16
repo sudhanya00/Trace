@@ -376,6 +376,67 @@ describe('crews and chat', () => {
   });
 });
 
+describe('ride invites', () => {
+  let crewId, crewInvite, publicInvite;
+
+  after(async () => {
+    if (publicInvite) await asha.from('ride_invites').delete().eq('id', publicInvite);
+    if (crewId) await asha.from('crews').delete().eq('id', crewId);
+  });
+
+  it('public invites reach the board; crew invites stay inside the crew', async () => {
+    const tomorrow = new Date(Date.now() + 86400e3).toISOString();
+    const pub = await asha
+      .from('ride_invites')
+      .insert({ created_by: ashaId, title: 'test: dawn board ride', meetup: 'Nishat gate', region: 'Kashmir', starts_at: tomorrow })
+      .select('id')
+      .single();
+    publicInvite = pub.data.id;
+
+    const { data: crew } = await asha
+      .from('crews')
+      .insert({ name: 'test: invite crew', created_by: ashaId })
+      .select('id')
+      .single();
+    crewId = crew.id;
+    const ci = await asha
+      .from('ride_invites')
+      .insert({ created_by: ashaId, crew_id: crewId, title: 'test: crew sunday', starts_at: tomorrow })
+      .select('id')
+      .single();
+    crewInvite = ci.data.id;
+
+    const board = await veer.rpc('invite_list', { p_crew_id: null });
+    assert.ok(board.data.some((i) => i.id === publicInvite), 'public invite on the board for others');
+    assert.ok(!board.data.some((i) => i.id === crewInvite), 'crew invite absent from the board');
+
+    const sneak = await veer.rpc('invite_list', { p_crew_id: crewId });
+    assert.equal(sneak.data.length, 0, 'non-member sees no crew invites');
+
+    // and the crew invite pinged... nobody (asha is the only member, poster excluded)
+    await veer.from('crew_members').insert({ crew_id: crewId, profile_id: veerId });
+    const inside = await veer.rpc('invite_list', { p_crew_id: crewId });
+    assert.ok(inside.data.some((i) => i.id === crewInvite), 'member sees the crew invite');
+  });
+
+  it('RSVP is one tap, counted, revocable — and only as yourself', async () => {
+    await veer.from('invite_rsvps').insert({ invite_id: publicInvite, profile_id: veerId });
+    let board = await veer.rpc('invite_list', { p_crew_id: null });
+    let row = board.data.find((i) => i.id === publicInvite);
+    assert.equal(Number(row.rsvp_count), 1);
+    assert.equal(row.i_am_in, true);
+
+    const forged = await veer.from('invite_rsvps').insert({ invite_id: publicInvite, profile_id: ashaId });
+    assert.ok(forged.error, 'RSVP as someone else rejected');
+
+    await veer.from('invite_rsvps').delete().eq('invite_id', publicInvite).eq('profile_id', veerId);
+    board = await veer.rpc('invite_list', { p_crew_id: null });
+    row = board.data.find((i) => i.id === publicInvite);
+    assert.equal(Number(row.rsvp_count), 0);
+    assert.equal(row.i_am_in, false);
+  });
+});
+
 describe('server-side distance and odometer', () => {
   it('distance sums segments only — the gap span is never counted', async () => {
     // Two ~1.1km meridian segments with a ~1.1km hole between them.

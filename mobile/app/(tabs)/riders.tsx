@@ -3,6 +3,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { InviteCard } from '../../src/components/InviteCard';
 import { Field, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
@@ -11,9 +12,12 @@ import {
   declineFollow,
   FollowEdge,
   followEdges,
+  listInvites,
   listNotifications,
   markNotificationRead,
   Profile,
+  RideInvite,
+  rsvpInvite,
   searchRiders,
 } from '../../src/lib/db';
 import { color, font, layout } from '../../src/theme/tokens';
@@ -28,13 +32,21 @@ export default function Riders() {
   const [results, setResults] = useState<Profile[]>([]);
   const [edges, setEdges] = useState<FollowEdge[]>([]);
   const [inbox, setInbox] = useState<AppNotification[]>([]);
+  const [board, setBoard] = useState<RideInvite[]>([]);
 
   const loadEdges = useCallback(() => {
     followEdges().then(setEdges).catch(() => {});
     listNotifications().then(setInbox).catch(() => {});
+    listInvites(null).then(setBoard).catch(() => {});
   }, []);
 
   useFocusEffect(loadEdges);
+
+  const toggleRsvp = async (invite: RideInvite, going: boolean) => {
+    if (!session) return;
+    await rsvpInvite(session.user.id, invite.id, going).catch(() => {});
+    listInvites(null).then(setBoard).catch(() => {});
+  };
 
   const openNotification = async (n: AppNotification) => {
     markNotificationRead(n.id).catch(() => {});
@@ -122,6 +134,20 @@ export default function Riders() {
           </View>
         )}
       </Pressable>
+
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 26 }}>
+        <MonoLabel size={9}>Ride board</MonoLabel>
+        <Pressable onPress={() => router.push('/invite/new')} hitSlop={8}>
+          <Text style={st.planLink}>+ PLAN A RIDE</Text>
+        </Pressable>
+      </View>
+      <View style={{ marginTop: 8 }}>
+        {board.length === 0 ? (
+          <Text style={st.boardEmpty}>Nothing planned — post the first ride.</Text>
+        ) : (
+          board.map((i) => <InviteCard key={i.id} invite={i} onToggle={(g) => toggleRsvp(i, g)} />)
+        )}
+      </View>
 
       <Field
         label="Find riders"
@@ -279,4 +305,6 @@ const st = StyleSheet.create({
     borderRadius: 12,
     gap: 8,
   },
+  planLink: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
+  boardEmpty: { fontFamily: font.body, fontSize: 12.5, color: color.dim },
 });
