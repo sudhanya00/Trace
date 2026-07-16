@@ -6,7 +6,6 @@ import { PushButton } from '../../src/components/PushButton';
 import { Card, Field, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import { updateProfile } from '../../src/lib/db';
-import { supabase } from '../../src/lib/supabase';
 import { color, font, layout } from '../../src/theme/tokens';
 
 export default function ProfileScreen() {
@@ -43,11 +42,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    router.replace('/');
-  };
-
   return (
     <ScrollView style={st.root} contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
       <MonoLabel size={9.5}>@{profile.handle}</MonoLabel>
@@ -76,7 +70,12 @@ export default function ProfileScreen() {
         </View>
       </Card>
 
-      <PushButton label="Sign out" variant="slate" onPress={signOut} style={{ marginTop: 30 }} />
+      <PushButton
+        label="Settings"
+        variant="slate"
+        onPress={() => router.push('/settings')}
+        style={{ marginTop: 30 }}
+      />
     </ScrollView>
   );
 }

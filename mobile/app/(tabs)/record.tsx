@@ -1,5 +1,7 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import * as Location from 'expo-location';
+import * as Device from 'expo-device';
+import { usePostHog } from 'posthog-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -35,6 +37,7 @@ import {
   resumeRide,
   startRide,
 } from '../../src/lib/recording';
+import { oemFamily } from '../../src/lib/oem';
 import { syncPendingRides } from '../../src/lib/sync';
 import { color, font, layout } from '../../src/theme/tokens';
 
@@ -134,9 +137,20 @@ export default function Record() {
     }
   };
 
+  const posthog = usePostHog();
+
   const onFinish = async () => {
     if (phase.kind !== 'recording') return;
+    const s = rideState(phase.ride.id);
     await finishRide(phase.ride);
+    // §12b: gap metrics + device from day one — tuning without this is guesswork.
+    posthog?.capture('ride_finished', {
+      distance_km: s ? Math.round(s.distance_m / 100) / 10 : 0,
+      gap_count: s?.gap_count ?? 0,
+      gap_duration_s: s?.gap_duration_s ?? 0,
+      manufacturer: Device.manufacturer,
+      os_version: Device.osVersion,
+    });
     refresh();
     syncPendingRides(); // fire and forget — never block the UI on sync (§4)
   };
@@ -234,6 +248,15 @@ export default function Record() {
         </View>
       )}
 
+      {/* §12b: recording is in beta — say so, plainly */}
+      {phase.kind === 'idle' && (
+        <View style={st.betaRow}>
+          <Text style={st.betaText}>
+            Recording is in beta — tracks may have gaps. Keep your odometer as backup.
+          </Text>
+        </View>
+      )}
+
       {/* idle: bike selector */}
       {phase.kind === 'idle' && bikes.length > 0 && (
         <View style={st.bikeRow}>
@@ -275,6 +298,13 @@ export default function Record() {
             <PushButton label="Resume ride" onPress={onResume} height={56} style={{ flex: 1 }} />
             <PushButton label="Finish here" variant="slate" onPress={onFinalize} height={56} style={{ flex: 1 }} />
           </View>
+          {oemFamily() && (
+            <Pressable onPress={() => router.push('/oem-whitelist')} style={{ marginTop: 12 }}>
+              <Text style={st.oemLink}>
+                Your phone likely killed it — set TRACE to unrestricted battery →
+              </Text>
+            </Pressable>
+          )}
         </View>
       )}
 
@@ -441,6 +471,10 @@ const st = StyleSheet.create({
   },
   interruptedTitle: { fontFamily: font.bodySemi, fontSize: 14, color: color.amber },
   interruptedBody: { fontFamily: font.body, fontSize: 12, color: color.steel, lineHeight: 17, marginTop: 6 },
+  oemLink: { fontFamily: font.bodyMedium, fontSize: 12, color: color.signal, lineHeight: 17 },
+
+  betaRow: { marginHorizontal: layout.screenPadding, marginTop: 16 },
+  betaText: { fontFamily: font.body, fontSize: 11, color: color.dim, lineHeight: 16 },
 
   ctrl: { padding: layout.screenPadding, paddingBottom: 100, marginTop: 20 },
 

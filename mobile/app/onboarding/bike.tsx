@@ -6,6 +6,7 @@ import { BikeForm } from '../../src/components/BikeForm';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import { BikeInput, createBike } from '../../src/lib/db';
+import { oemFamily } from '../../src/lib/oem';
 import { color, font, layout } from '../../src/theme/tokens';
 
 /**
@@ -21,7 +22,9 @@ export default function FirstBike() {
     setBusy(true);
     try {
       await createBike(session.user.id, input);
-      router.replace('/(tabs)/garage');
+      // §6: aggressive-OEM handsets get the battery walkthrough right after
+      // the garage exists — warn, don't gate.
+      router.replace(oemFamily() ? '/oem-whitelist?from=onboarding' : '/(tabs)/garage');
     } catch (e) {
       Alert.alert('Could not save bike', (e as Error).message);
     } finally {
