@@ -1,0 +1,224 @@
+import { Feather } from '@expo/vector-icons';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { Field, MonoLabel } from '../../src/components/ui';
+import { useAuth } from '../../src/lib/auth';
+import {
+  acceptFollow,
+  declineFollow,
+  FollowEdge,
+  followEdges,
+  Profile,
+  searchRiders,
+} from '../../src/lib/db';
+import { color, font, layout } from '../../src/theme/tokens';
+
+/**
+ * Riders (Phase 02): find riders, answer requests, see who you ride with.
+ * Regional crews and route threads build on top of this graph.
+ */
+export default function Riders() {
+  const { session, profile } = useAuth();
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<Profile[]>([]);
+  const [edges, setEdges] = useState<FollowEdge[]>([]);
+
+  const loadEdges = useCallback(() => {
+    followEdges().then(setEdges).catch(() => {});
+  }, []);
+
+  useFocusEffect(loadEdges);
+
+  useEffect(() => {
+    if (!session || q.trim().length < 2) {
+      setResults([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      searchRiders(session.user.id, q.trim()).then(setResults).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, session]);
+
+  const requests = edges.filter((e) => e.direction === 'follower' && e.state === 'pending');
+  const following = edges.filter((e) => e.direction === 'following');
+  const followers = edges.filter((e) => e.direction === 'follower' && e.state === 'accepted');
+
+  const answer = async (e: FollowEdge, accept: boolean) => {
+    if (!session) return;
+    try {
+      if (accept) await acceptFollow(e.other_id, session.user.id);
+      else await declineFollow(e.other_id, session.user.id);
+    } finally {
+      loadEdges();
+    }
+  };
+
+  return (
+    <ScrollView style={st.root} contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
+      <Text style={st.h1}>Riders</Text>
+
+      {/* you — the door to your own profile */}
+      {profile && (
+        <Pressable onPress={() => router.push('/profile')}>
+          {({ pressed }) => (
+            <View style={[st.youRow, pressed && { backgroundColor: color.slate }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={st.rowName}>@{profile.handle}</Text>
+                <MonoLabel size={8.5} style={{ marginTop: 3 }}>
+                  {profile.visibility === 'public' ? 'Public profile' : 'Private profile'}
+                </MonoLabel>
+              </View>
+              <Feather name="chevron-right" size={16} color={color.dim} />
+            </View>
+          )}
+        </Pressable>
+      )}
+
+      <Field
+        label="Find riders"
+        value={q}
+        onChangeText={setQ}
+        placeholder="handle or name"
+        style={{ marginTop: 22 }}
+      />
+      {results.map((p) => (
+        <RiderRow
+          key={p.id}
+          id={p.id}
+          title={`@${p.handle}`}
+          sub={[p.display_name, p.home_region].filter(Boolean).join(' · ')}
+        />
+      ))}
+
+      {requests.length > 0 && (
+        <>
+          <MonoLabel size={9} style={st.section}>
+            Requests
+          </MonoLabel>
+          {requests.map((e) => (
+            <View key={e.other_id} style={st.row}>
+              <Pressable style={{ flex: 1 }} onPress={() => router.push(`/rider/${e.other_id}`)}>
+                <Text style={st.rowName}>@{e.handle}</Text>
+                {e.display_name ? (
+                  <Text style={st.rowSub}>{e.display_name}</Text>
+                ) : null}
+              </Pressable>
+              <Pressable onPress={() => answer(e, true)} style={[st.smallBtn, st.smallBtnOn]}>
+                <Text style={[st.smallBtnText, { color: color.signal }]}>ACCEPT</Text>
+              </Pressable>
+              <Pressable onPress={() => answer(e, false)} style={st.smallBtn}>
+                <Text style={st.smallBtnText}>DECLINE</Text>
+              </Pressable>
+            </View>
+          ))}
+        </>
+      )}
+
+      <MonoLabel size={9} style={st.section}>
+        Following · {following.filter((e) => e.state === 'accepted').length}
+      </MonoLabel>
+      {following.length === 0 ? (
+        <Text style={st.empty}>Find the riders you know — routes travel through people.</Text>
+      ) : (
+        following.map((e) => (
+          <RiderRow
+            key={e.other_id}
+            id={e.other_id}
+            title={`@${e.handle}`}
+            sub={e.display_name ?? ''}
+            chip={e.state === 'pending' ? 'REQUESTED' : undefined}
+          />
+        ))
+      )}
+
+      {followers.length > 0 && (
+        <>
+          <MonoLabel size={9} style={st.section}>
+            Followers · {followers.length}
+          </MonoLabel>
+          {followers.map((e) => (
+            <RiderRow key={e.other_id} id={e.other_id} title={`@${e.handle}`} sub={e.display_name ?? ''} />
+          ))}
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+function RiderRow({ id, title, sub, chip }: { id: string; title: string; sub: string; chip?: string }) {
+  return (
+    <Pressable onPress={() => router.push(`/rider/${id}`)}>
+      {({ pressed }) => (
+        <View style={[st.row, pressed && { backgroundColor: color.slate }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={st.rowName}>{title}</Text>
+            {sub ? <Text style={st.rowSub}>{sub}</Text> : null}
+          </View>
+          {chip && (
+            <Text style={st.chip}>{chip}</Text>
+          )}
+          <Feather name="chevron-right" size={16} color={color.dim} />
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+const st = StyleSheet.create({
+  root: { flex: 1, backgroundColor: color.void },
+  content: { paddingHorizontal: layout.screenPadding, paddingTop: 64, paddingBottom: 110 },
+  h1: {
+    fontFamily: font.display,
+    fontSize: 41,
+    color: color.white,
+    textTransform: 'uppercase',
+    lineHeight: 42,
+  },
+  youRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 18,
+    padding: 14,
+    backgroundColor: color.slate,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 12,
+    gap: 8,
+  },
+  section: { marginTop: 28, marginBottom: 4 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: color.hair,
+    gap: 10,
+  },
+  rowName: { fontFamily: font.bodySemi, fontSize: 14, color: color.white },
+  rowSub: { fontFamily: font.body, fontSize: 11.5, color: color.steel, marginTop: 3 },
+  empty: { fontFamily: font.body, fontSize: 12.5, color: color.dim, marginTop: 10, lineHeight: 18 },
+  chip: {
+    fontFamily: font.mono,
+    fontSize: 7.5,
+    letterSpacing: 1.2,
+    color: color.steel,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3.5,
+  },
+  smallBtn: {
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate2,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  smallBtnOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
+  smallBtnText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2, color: color.steel },
+});

@@ -79,11 +79,11 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="riders"
         options={{
-          title: 'PROFILE',
+          title: 'RIDERS',
           tabBarIcon: ({ focused }) => (
-            <Feather name="user" size={19} color={focused ? color.signal : color.dim} />
+            <Feather name="users" size={19} color={focused ? color.signal : color.dim} />
           ),
         }}
       />

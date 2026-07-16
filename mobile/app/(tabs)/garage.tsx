@@ -48,7 +48,9 @@ export default function Garage() {
   return (
     <View style={st.root}>
       <View style={st.head}>
-        {eyebrow ? <MonoLabel size={9.5}>{eyebrow}</MonoLabel> : null}
+        <Pressable onPress={() => router.push('/profile')} hitSlop={8}>
+          <MonoLabel size={9.5}>{eyebrow || 'PROFILE'} →</MonoLabel>
+        </Pressable>
         <Text style={st.h1}>Garage</Text>
         <View style={st.totals}>
           <Total label="Lifetime" value={fmtKm(lifetimeKm)} unit="km" />

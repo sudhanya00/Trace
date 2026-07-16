@@ -338,6 +338,83 @@ export async function deletePrivacyZone(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export type FollowEdge = {
+  direction: 'following' | 'follower';
+  other_id: string;
+  handle: string;
+  display_name: string | null;
+  state: 'pending' | 'accepted';
+  created_at: string;
+};
+
+/** Both sides of the caller's follow graph, with names. */
+export async function followEdges(): Promise<FollowEdge[]> {
+  const { data, error } = await supabase.rpc('follow_edges');
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Follow someone. The server decides pending vs accepted from their
+ *  visibility — public accepts instantly, private becomes a request. */
+export async function follow(userId: string, followeeId: string): Promise<'pending' | 'accepted'> {
+  const { data, error } = await supabase
+    .from('follows')
+    .insert({ follower_id: userId, followee_id: followeeId })
+    .select('state')
+    .single();
+  if (error) throw error;
+  return data.state;
+}
+
+export async function unfollow(userId: string, followeeId: string): Promise<void> {
+  const { error } = await supabase
+    .from('follows')
+    .delete()
+    .eq('follower_id', userId)
+    .eq('followee_id', followeeId);
+  if (error) throw error;
+}
+
+export async function acceptFollow(followerId: string, userId: string): Promise<void> {
+  const { error } = await supabase
+    .from('follows')
+    .update({ state: 'accepted' })
+    .eq('follower_id', followerId)
+    .eq('followee_id', userId);
+  if (error) throw error;
+}
+
+export async function declineFollow(followerId: string, userId: string): Promise<void> {
+  const { error } = await supabase
+    .from('follows')
+    .delete()
+    .eq('follower_id', followerId)
+    .eq('followee_id', userId);
+  if (error) throw error;
+}
+
+/** Handle search. RLS keeps results to public + followed profiles. */
+export async function searchRiders(userId: string, q: string): Promise<Profile[]> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .neq('id', userId)
+    .or(`handle.ilike.%${q}%,display_name.ilike.%${q}%`)
+    .limit(20);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listRiderRoutes(profileId: string): Promise<Route[]> {
+  const { data, error } = await supabase
+    .from('routes_public')
+    .select('id, profile_id, source_ride_id, name, description, terrain_tags, distance_km, photo_url, created_at')
+    .eq('profile_id', profileId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
 /** §12b: one-tap report — the feedback loop that fixes GPS. */
 export async function submitRecordingReport(
   userId: string,

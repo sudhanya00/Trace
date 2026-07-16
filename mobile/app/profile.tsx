@@ -2,11 +2,11 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { PushButton } from '../../src/components/PushButton';
-import { Card, Field, MonoLabel } from '../../src/components/ui';
-import { useAuth } from '../../src/lib/auth';
-import { updateProfile } from '../../src/lib/db';
-import { color, font, layout } from '../../src/theme/tokens';
+import { PushButton } from '../src/components/PushButton';
+import { Card, Field, MonoLabel } from '../src/components/ui';
+import { useAuth } from '../src/lib/auth';
+import { updateProfile } from '../src/lib/db';
+import { color, font, layout } from '../src/theme/tokens';
 
 export default function ProfileScreen() {
   const { profile, refreshProfile } = useAuth();

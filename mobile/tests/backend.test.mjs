@@ -150,6 +150,67 @@ describe('row-level security', () => {
   });
 });
 
+describe('follows (Phase 02 policy swap)', () => {
+  after(async () => {
+    await veer.from('follows').delete().eq('follower_id', veerId);
+    await asha.from('follows').delete().eq('follower_id', ashaId);
+  });
+
+  it('following a public profile is accepted instantly, whatever the client sent', async () => {
+    const { data, error } = await veer
+      .from('follows')
+      .insert({ follower_id: veerId, followee_id: ashaId, state: 'pending' })
+      .select('state')
+      .single();
+    assert.equal(error, null);
+    assert.equal(data.state, 'accepted', 'trigger overrides client state');
+    await veer.from('follows').delete().eq('follower_id', veerId);
+  });
+
+  it('following a private profile creates a request the followee must accept', async () => {
+    const { data } = await asha
+      .from('follows')
+      .insert({ follower_id: ashaId, followee_id: veerId, state: 'accepted' })
+      .select('state')
+      .single();
+    assert.equal(data.state, 'pending', 'trigger forces pending for private profiles');
+
+    // before acceptance: veer's rides stay invisible to asha
+    const hidden = await asha.from('rides').select('id').eq('profile_id', veerId);
+    assert.equal(hidden.data.length, 0);
+
+    // followee accepts
+    const upd = await veer
+      .from('follows')
+      .update({ state: 'accepted' })
+      .eq('follower_id', ashaId)
+      .eq('followee_id', veerId)
+      .select('state')
+      .single();
+    assert.equal(upd.data.state, 'accepted');
+
+    // now asha sees veer's rides, profile, and CLIPPED track — not raw
+    const rides = await asha.from('rides').select('id').eq('profile_id', veerId);
+    assert.equal(rides.data.length, 1, 'followed private rides visible');
+    const clip = await asha.rpc('public_track_geom', { p_ride_id: VEER_RIDE });
+    assert.ok(clip.data, 'clipped track accessible to accepted follower');
+    const raw = await asha.from('ride_tracks').select('ride_id').eq('ride_id', VEER_RIDE);
+    assert.equal(raw.data.length, 0, 'raw geometry stays owner-only even for followers');
+
+    // unfollow revokes everything
+    await asha.from('follows').delete().eq('follower_id', ashaId).eq('followee_id', veerId);
+    const revoked = await asha.from('rides').select('id').eq('profile_id', veerId);
+    assert.equal(revoked.data.length, 0, 'unfollow revokes visibility');
+  });
+
+  it('nobody can follow as someone else or peek at third-party edges', async () => {
+    const forged = await veer.from('follows').insert({ follower_id: ashaId, followee_id: veerId });
+    assert.ok(forged.error, 'forged follower_id rejected');
+    const { data: anonEdges, error: anonErr } = await anon.from('follows').select('*');
+    assert.ok(anonErr || anonEdges.length === 0, 'anon sees no edges');
+  });
+});
+
 describe('server-side distance and odometer', () => {
   it('distance sums segments only — the gap span is never counted', async () => {
     // Two ~1.1km meridian segments with a ~1.1km hole between them.
