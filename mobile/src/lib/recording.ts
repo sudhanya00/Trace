@@ -123,8 +123,8 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
         );
         ldb.runSync(
           `INSERT OR REPLACE INTO local_ride_state
-             (ride_id, last_seq, segment_seq, last_lat, last_lng, last_ts, last_altitude, last_accuracy, distance_m, gap_count, gap_duration_s, last_move_ts, pause_prompted)
-           VALUES (?, 0, 0, ?, ?, ?, ?, ?, 0, 0, 0, ?, 0)`,
+             (ride_id, last_seq, segment_seq, last_lat, last_lng, last_ts, last_altitude, last_accuracy, distance_m, gap_count, gap_duration_s, last_move_ts, pause_prompted, stops_count, stopped_s, elev_gain_m)
+           VALUES (?, 0, 0, ?, ?, ?, ?, ?, 0, 0, 0, ?, 0, 0, 0, 0)`,
           [ride.id, lat, lng, ts, altitude ?? null, accuracy ?? null, ts]
         );
         s = rideState(ride.id)!;
@@ -157,6 +157,14 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
       const segment = isGap ? s.segment_seq + 1 : s.segment_seq;
       // Gap distance is never counted (§5) — distance only accrues within a segment.
       const addedM = isGap ? 0 : d;
+      // Movement resuming after a >90s stationary silence closes a stop
+      // episode (a gap is signal loss, not a stop — counted separately).
+      const wasStop = !isGap && ts - s.last_move_ts > AUTO_PAUSE_MS;
+      // Elevation gain: positive deltas only, jitter under 1.5m ignored.
+      const elevDelta =
+        altitude != null && s.last_altitude != null && altitude - s.last_altitude > 1.5
+          ? altitude - s.last_altitude
+          : 0;
 
       ldb.runSync(
         `INSERT OR REPLACE INTO local_points (ride_id, seq, segment_seq, ts, lat, lng, accuracy, altitude, speed)
@@ -168,13 +176,17 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
            last_seq = ?, segment_seq = ?, last_lat = ?, last_lng = ?, last_ts = ?,
            last_altitude = ?, last_accuracy = ?, distance_m = distance_m + ?,
            gap_count = gap_count + ?, gap_duration_s = gap_duration_s + ?,
-           last_move_ts = ?, pause_prompted = 0
+           last_move_ts = ?, pause_prompted = 0,
+           stops_count = stops_count + ?, stopped_s = stopped_s + ?,
+           elev_gain_m = elev_gain_m + ?
          WHERE ride_id = ?`,
         [
           seq, segment, lat, lng, ts,
           altitude ?? null, accuracy ?? null, addedM,
           isGap ? 1 : 0, isGap ? Math.round(dt / 1000) : 0,
           ts,
+          wasStop ? 1 : 0, wasStop ? Math.round((ts - s.last_move_ts) / 1000) : 0,
+          elevDelta,
           ride.id,
         ]
       );
@@ -207,7 +219,7 @@ export async function startRide(bikeId: string | null): Promise<LocalRide> {
   ]);
   lastNotificationUpdate = 0;
   await Location.startLocationUpdatesAsync(RECORDING_TASK, LOCATION_OPTIONS);
-  return { id, bike_id: bikeId, started_at: now, ended_at: null, sync_state: 'recording', sync_attempts: 0, last_error: null };
+  return { id, bike_id: bikeId, started_at: now, ended_at: null, sync_state: 'recording', sync_attempts: 0, last_error: null, pending_title: null };
 }
 
 /** Resume after an interruption (§5 recovery): same ride, recorder restarted.

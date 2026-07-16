@@ -50,11 +50,14 @@ ldb.execSync(`
     gap_count INTEGER NOT NULL DEFAULT 0,
     gap_duration_s INTEGER NOT NULL DEFAULT 0,
     last_move_ts INTEGER NOT NULL DEFAULT 0,
-    pause_prompted INTEGER NOT NULL DEFAULT 0
+    pause_prompted INTEGER NOT NULL DEFAULT 0,
+    stops_count INTEGER NOT NULL DEFAULT 0,
+    stopped_s INTEGER NOT NULL DEFAULT 0,
+    elev_gain_m REAL NOT NULL DEFAULT 0
   );
 `);
 
-// Dev-phase column migration for databases created before these columns existed.
+// Dev-phase column migrations for databases created before these columns existed.
 {
   const cols = ldb.getAllSync<{ name: string }>('PRAGMA table_info(local_ride_state)');
   if (!cols.some((c) => c.name === 'last_move_ts')) {
@@ -62,6 +65,18 @@ ldb.execSync(`
       ALTER TABLE local_ride_state ADD COLUMN last_move_ts INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE local_ride_state ADD COLUMN pause_prompted INTEGER NOT NULL DEFAULT 0;
     `);
+  }
+  if (!cols.some((c) => c.name === 'stops_count')) {
+    ldb.execSync(`
+      ALTER TABLE local_ride_state ADD COLUMN stops_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE local_ride_state ADD COLUMN stopped_s INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE local_ride_state ADD COLUMN elev_gain_m REAL NOT NULL DEFAULT 0;
+    `);
+  }
+  const rideCols = ldb.getAllSync<{ name: string }>('PRAGMA table_info(local_rides)');
+  if (!rideCols.some((c) => c.name === 'pending_title')) {
+    // Title typed at the finish moment, applied to the server row on sync.
+    ldb.execSync('ALTER TABLE local_rides ADD COLUMN pending_title TEXT;');
   }
 }
 
@@ -73,6 +88,7 @@ export type LocalRide = {
   sync_state: 'recording' | 'pending' | 'syncing' | 'synced' | 'failed';
   sync_attempts: number;
   last_error: string | null;
+  pending_title: string | null;
 };
 
 export type LocalPoint = {
@@ -103,6 +119,12 @@ export type RideState = {
   last_move_ts: number;
   /** 1 once the still-riding notification fired for the current pause. */
   pause_prompted: number;
+  /** Pause episodes (>90s stationary) — the chai-stop count. */
+  stops_count: number;
+  /** Total stationary seconds across those stops. */
+  stopped_s: number;
+  /** Accumulated positive elevation, metres (deltas > 1.5m to skip jitter). */
+  elev_gain_m: number;
 };
 
 export function recordingRide(): LocalRide | null {
@@ -124,6 +146,15 @@ export function pointsForRide(rideId: string): LocalPoint[] {
     'SELECT * FROM local_points WHERE ride_id = ? ORDER BY seq',
     [rideId]
   );
+}
+
+/** Title typed at the finish moment; sync writes it onto the server row. */
+export function setPendingTitle(rideId: string, title: string | null) {
+  ldb.runSync('UPDATE local_rides SET pending_title = ? WHERE id = ?', [title, rideId]);
+}
+
+export function localRide(rideId: string): LocalRide | null {
+  return ldb.getFirstSync<LocalRide>('SELECT * FROM local_rides WHERE id = ?', [rideId]);
 }
 
 export function deleteLocalRide(rideId: string) {

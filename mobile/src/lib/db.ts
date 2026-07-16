@@ -35,6 +35,9 @@ export type Ride = {
   gap_duration_s: number;
   title: string | null;
   note: string | null;
+  moving_s: number | null;
+  stops_count: number | null;
+  elev_gain_m: number | null;
   created_at: string;
 };
 

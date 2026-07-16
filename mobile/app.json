@@ -44,6 +44,12 @@
       ],
       "expo-sqlite",
       "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "TRACE opens the camera so you can freeze the moment a ride ends."
+        }
+      ],
       "expo-font",
       [
         "expo-splash-screen",

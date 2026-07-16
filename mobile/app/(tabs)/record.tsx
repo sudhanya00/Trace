@@ -67,6 +67,11 @@ export default function Record() {
   const [foregroundOnly, setForegroundOnly] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [sweepKey, setSweepKey] = useState(0);
+  // GPS warm-up: the chip takes tens of seconds to first fix from cold.
+  // Watching position while the Record screen is open (screen on, foreground
+  // permission only) means the fix usually exists BEFORE the Start tap —
+  // the same trick maps apps use. Stops on blur; costs nothing on other tabs.
+  const [warmFix, setWarmFix] = useState<{ accuracy: number | null; ts: number } | null>(null);
 
   const refresh = useCallback(async () => {
     const ride = recordingRide();
@@ -102,9 +107,23 @@ export default function Record() {
         .catch(() => {});
       const t = setInterval(refresh, 2000);
       const tick = setInterval(() => setNow(Date.now()), 1000);
+      // Warm the GPS while the dial is on screen and no ride is running.
+      let warmSub: Location.LocationSubscription | null = null;
+      (async () => {
+        const perm = await Location.getForegroundPermissionsAsync();
+        if (!perm.granted || recordingRide()) return;
+        const last = await Location.getLastKnownPositionAsync().catch(() => null);
+        if (last) setWarmFix({ accuracy: last.coords.accuracy ?? null, ts: last.timestamp });
+        warmSub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.High, timeInterval: 2000, distanceInterval: 0 },
+          (loc) => setWarmFix({ accuracy: loc.coords.accuracy ?? null, ts: loc.timestamp })
+        ).catch(() => null);
+      })();
+
       return () => {
         clearInterval(t);
         clearInterval(tick);
+        warmSub?.remove();
         void bikesLoad;
       };
     }, [refresh, session])
@@ -155,6 +174,8 @@ export default function Record() {
     });
     refresh();
     syncPendingRides(); // fire and forget — never block the UI on sync (§4)
+    // The moment of accomplishment — never let a ride end into silence.
+    router.push(`/ride/finished?id=${phase.ride.id}`);
   };
 
   const onResume = async () => {
@@ -194,10 +215,23 @@ export default function Record() {
         ) : (
           <View />
         )}
-        {phase.kind === 'recording' && (
+        {phase.kind === 'recording' ? (
           <View style={{ alignItems: 'flex-end' }}>
             <MonoLabel size={9}>GPS</MonoLabel>
             <GpsBars level={gpsGood ? 'good' : gpsWeak ? 'weak' : 'lost'} />
+          </View>
+        ) : (
+          <View style={{ alignItems: 'flex-end' }}>
+            <MonoLabel size={9}>GPS</MonoLabel>
+            <GpsBars
+              level={
+                warmFix && now - warmFix.ts < 10_000 && (warmFix.accuracy ?? 99) < 30
+                  ? 'good'
+                  : warmFix && now - warmFix.ts < 30_000
+                    ? 'weak'
+                    : 'lost'
+              }
+            />
           </View>
         )}
       </View>

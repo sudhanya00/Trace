@@ -52,6 +52,7 @@ async function syncRide(ride: LocalRide, userId: string): Promise<void> {
     const s = rideState(ride.id);
     const points = pointsForRide(ride.id);
 
+    const elapsedS = Math.max(0, Math.round(((ride.ended_at ?? ride.started_at) - ride.started_at) / 1000));
     const { error: rideErr } = await supabase.from('rides').upsert(
       {
         id: ride.id,
@@ -61,6 +62,11 @@ async function syncRide(ride: LocalRide, userId: string): Promise<void> {
         ended_at: new Date(ride.ended_at ?? ride.started_at).toISOString(),
         gap_count: s?.gap_count ?? 0,
         gap_duration_s: s?.gap_duration_s ?? 0,
+        stops_count: s?.stops_count ?? 0,
+        // moving time = wall time minus stops minus dropouts
+        moving_s: Math.max(0, elapsedS - (s?.stopped_s ?? 0) - (s?.gap_duration_s ?? 0)),
+        elev_gain_m: Math.round(s?.elev_gain_m ?? 0),
+        title: ride.pending_title,
       },
       { onConflict: 'id' }
     );

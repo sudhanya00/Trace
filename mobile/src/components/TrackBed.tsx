@@ -131,8 +131,25 @@ export function TrackBed({ points }: { points: Pt[] }) {
   );
 }
 
+/** Project [lng,lat] segments into an arbitrary box — shared with ShareCard. */
+export function projectSegmentsToBox(
+  segments: [number, number][][],
+  boxW: number,
+  boxH: number,
+  pad = 0.16
+): [number, number][][] {
+  const pts: Pt[] = segments.flatMap((seg, i) =>
+    seg.map(([lng, lat]) => ({ lng, lat, segment_seq: i }))
+  );
+  return projectInto(pts, boxW, boxH, pad);
+}
+
 /** Project lat/lng points into the bed viewport, preserving aspect. */
 function project(points: Pt[]): [number, number][][] {
+  return projectInto(points, W, H, 0.16);
+}
+
+function projectInto(points: Pt[], boxW: number, boxH: number, pad: number): [number, number][][] {
   if (points.length < 2) return [];
 
   let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
@@ -148,17 +165,16 @@ function project(points: Pt[]): [number, number][][] {
 
   const spanX = Math.max((maxLng - minLng) * lngScale, 1e-5);
   const spanY = Math.max(maxLat - minLat, 1e-5);
-  const pad = 0.16;
-  const scale = Math.min((W * (1 - 2 * pad)) / spanX, (H * (1 - 2 * pad)) / spanY);
-  const offX = (W - spanX * scale) / 2;
-  const offY = (H - spanY * scale) / 2;
+  const scale = Math.min((boxW * (1 - 2 * pad)) / spanX, (boxH * (1 - 2 * pad)) / spanY);
+  const offX = (boxW - spanX * scale) / 2;
+  const offY = (boxH - spanY * scale) / 2;
 
   const segs: [number, number][][] = [];
   let cur: [number, number][] = [];
   let curSeg = points[0].segment_seq;
   for (const p of points) {
     const x = offX + (p.lng - minLng) * lngScale * scale;
-    const y = H - (offY + (p.lat - minLat) * scale); // north is up
+    const y = boxH - (offY + (p.lat - minLat) * scale); // north is up
     if (p.segment_seq !== curSeg) {
       if (cur.length >= 2) segs.push(cur);
       cur = [];

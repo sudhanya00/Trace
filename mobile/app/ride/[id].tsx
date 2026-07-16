@@ -1,11 +1,14 @@
 import * as Battery from 'expo-battery';
 import * as Device from 'expo-device';
+import * as Sharing from 'expo-sharing';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { captureRef } from 'react-native-view-shot';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { PushButton } from '../../src/components/PushButton';
 import { RideMap, Segments } from '../../src/components/RideMap';
+import { ShareCard, ShareCardData } from '../../src/components/ShareCard';
 import { DataCell, Field, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
@@ -46,6 +49,7 @@ export default function RideDetail() {
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const cardRef = useRef<View>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -178,6 +182,29 @@ export default function RideDetail() {
           {!isManual && <DataCell label="Duration" value={fmtDuration(+ended - +started)} />}
           {gapCount > 0 && <DataCell label="Gaps" value={String(gapCount)} />}
         </View>
+        {isServer &&
+          (() => {
+            const r = detail.ride as Ride;
+            const movingS = r.moving_s ?? null;
+            const avg =
+              movingS && movingS > 60 && r.profile_id === session?.user.id
+                ? Number(r.distance_km) / (movingS / 3600)
+                : null;
+            const cells = [
+              movingS != null && { label: 'Moving', value: fmtDuration(movingS * 1000) },
+              (r.stops_count ?? 0) > 0 && { label: 'Stops', value: String(r.stops_count) },
+              (r.elev_gain_m ?? 0) > 1 && { label: 'Climbed', value: `${Math.round(Number(r.elev_gain_m))} m` },
+              avg != null && { label: 'Avg moving · private', value: `${avg.toFixed(1)} km/h` },
+            ].filter(Boolean) as { label: string; value: string }[];
+            if (!cells.length) return null;
+            return (
+              <View style={[st.strip, { borderTopWidth: 0 }]}>
+                {cells.map((c, i) => (
+                  <DataCell key={c.label} first={i === 0} label={c.label} value={c.value} />
+                ))}
+              </View>
+            );
+          })()}
 
         {gapCount > 0 && (
           <View style={st.gapRow}>
@@ -221,6 +248,31 @@ export default function RideDetail() {
           </>
         )}
 
+        {segments.length > 0 && (
+          <PushButton
+            label="Share as image"
+            variant="slate"
+            onPress={async () => {
+              try {
+                const uri = await captureRef(cardRef, {
+                  format: 'png',
+                  quality: 1,
+                  result: 'tmpfile',
+                  width: 1080,
+                  height: 1920,
+                });
+                await Sharing.shareAsync(`file://${uri.replace(/^file:\/\//, '')}`, {
+                  mimeType: 'image/png',
+                  dialogTitle: 'Share your ride',
+                });
+              } catch (e) {
+                Alert.alert('Could not share', (e as Error).message);
+              }
+            }}
+            style={{ marginTop: 12 }}
+          />
+        )}
+
         {!isManual && (
           <Pressable onPress={report} style={st.reportRow}>
             <Text style={st.reportText}>Something wrong with this track? Report bad recording →</Text>
@@ -231,6 +283,32 @@ export default function RideDetail() {
           <Text style={st.backText}>Back</Text>
         </Pressable>
       </ScrollView>
+
+      {segments.length > 0 && (
+        <View style={{ position: 'absolute', left: -9999, top: 0 }} pointerEvents="none">
+          <ShareCard
+            ref={cardRef}
+            data={
+              {
+                title:
+                  (isServer && (detail.ride as Ride).title) ||
+                  (isManual ? 'Manual ride' : 'A ride worth keeping'),
+                dateStr: started.toLocaleDateString(undefined, {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'short',
+                }),
+                distanceKm,
+                durationStr: fmtDuration(+ended - +started),
+                elevGainM: isServer ? Number((detail.ride as Ride).elev_gain_m ?? 0) : detail.source === 'local' ? null : null,
+                stops: isServer ? (detail.ride as Ride).stops_count : null,
+                segments,
+                photoUri: null,
+              } satisfies ShareCardData
+            }
+          />
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
