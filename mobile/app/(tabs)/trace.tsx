@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { BikeMarker } from '../../src/components/BikeMarker';
+import { Loading } from '../../src/components/Loading';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import { BikeType, listBikes, listMyRides, traceBounds } from '../../src/lib/db';
@@ -119,6 +120,7 @@ export default function TraceMap() {
 
   return (
     <View style={st.root}>
+      {(!ready || !camResolved) && <Loading label="Reading your trace" />}
       {ready && camResolved && (
         <MapLibreMap
           style={{ flex: 1 }}
@@ -178,19 +180,19 @@ export default function TraceMap() {
 
       {/* edge glow: the map sits IN the cluster, not on top of it */}
       <LinearGradient
-        colors={['rgba(11,13,14,0.6)', 'rgba(11,13,14,0)']}
+        colors={['rgba(0,0,0,0.6)', 'rgba(0,0,0,0)']}
         style={st.edgeTop}
         pointerEvents="none"
       />
       <LinearGradient
-        colors={['rgba(11,13,14,0.45)', 'rgba(11,13,14,0)']}
+        colors={['rgba(0,0,0,0.45)', 'rgba(0,0,0,0)']}
         start={{ x: 0, y: 0.5 }}
         end={{ x: 1, y: 0.5 }}
         style={st.edgeLeft}
         pointerEvents="none"
       />
       <LinearGradient
-        colors={['rgba(11,13,14,0)', 'rgba(11,13,14,0.45)']}
+        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.45)']}
         start={{ x: 0, y: 0.5 }}
         end={{ x: 1, y: 0.5 }}
         style={st.edgeRight}

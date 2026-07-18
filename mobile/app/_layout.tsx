@@ -1,19 +1,10 @@
 import {
-  ChakraPetch_500Medium,
-  ChakraPetch_600SemiBold,
-  ChakraPetch_700Bold,
-} from '@expo-google-fonts/chakra-petch';
-import {
-  Saira_400Regular,
-  Saira_500Medium,
-  Saira_600SemiBold,
-  Saira_700Bold,
-} from '@expo-google-fonts/saira';
-import {
-  JetBrainsMono_400Regular,
-  JetBrainsMono_500Medium,
-  JetBrainsMono_700Bold,
-} from '@expo-google-fonts/jetbrains-mono';
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+  Manrope_800ExtraBold,
+} from '@expo-google-fonts/manrope';
 import * as Sentry from '@sentry/react-native';
 import { useFonts } from 'expo-font';
 import * as Network from 'expo-network';
@@ -73,16 +64,11 @@ function PushWiring() {
 
 function RootLayout() {
   const [fontsLoaded] = useFonts({
-    ChakraPetch_500Medium,
-    ChakraPetch_600SemiBold,
-    ChakraPetch_700Bold,
-    Saira_400Regular,
-    Saira_500Medium,
-    Saira_600SemiBold,
-    Saira_700Bold,
-    JetBrainsMono_400Regular,
-    JetBrainsMono_500Medium,
-    JetBrainsMono_700Bold,
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    Manrope_800ExtraBold,
   });
 
   useEffect(() => {

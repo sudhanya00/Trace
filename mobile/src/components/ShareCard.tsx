@@ -141,7 +141,7 @@ const st = StyleSheet.create({
     height: 110,
     backgroundColor: 'transparent',
     borderBottomWidth: 110,
-    borderBottomColor: 'rgba(11,13,14,0.92)',
+    borderBottomColor: 'rgba(0,0,0,0.92)',
   },
   body: { flex: 1, paddingHorizontal: 28, paddingTop: 6 },
   eyebrow: { fontFamily: font.mono, fontSize: 9, letterSpacing: 2, color: color.steel },

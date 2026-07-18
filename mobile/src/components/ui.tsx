@@ -9,7 +9,7 @@ import {
   ViewStyle,
 } from 'react-native';
 
-import { color, font, layout } from '../theme/tokens';
+import { color, font, layout, shadow } from '../theme/tokens';
 
 /** Mono label: always uppercase, letter-spaced, steel (§8 typography). */
 export function MonoLabel({
@@ -56,7 +56,10 @@ export function Card({
     <View
       style={[
         st.card,
-        pressed && { borderColor: 'rgba(232,234,234,.2)', transform: [{ translateY: -1 }] },
+        pressed && {
+          borderColor: 'rgba(255,255,255,0.18)',
+          transform: [{ translateY: -1 }, { scale: 0.988 }],
+        },
         style,
       ]}
     >
@@ -131,12 +134,14 @@ export function DataCell({
 
 const st = StyleSheet.create({
   card: {
-    backgroundColor: color.slate,
+    // Glass surface over true black: translucent fill, luminous border, depth.
+    backgroundColor: color.glass,
     borderWidth: 1,
-    borderColor: color.hair,
-    borderRadius: layout.cardRadius,
+    borderColor: color.glassBorder,
+    borderRadius: 16,
     padding: 18,
     overflow: 'hidden',
+    boxShadow: shadow.card,
   },
   activeEdge: {
     position: 'absolute',

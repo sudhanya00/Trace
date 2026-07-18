@@ -35,7 +35,7 @@ export function PushButton({
     variant === 'signal'
       ? { backgroundColor: color.signal }
       : { backgroundColor: color.slate2, borderWidth: 1, borderColor: color.hair };
-  const plinth = variant === 'signal' ? color.signalDown : '#0d1113';
+  const plinth = variant === 'signal' ? color.signalDown : '#0A0C0E';
 
   return (
     <Pressable

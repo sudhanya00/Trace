@@ -119,10 +119,10 @@ export function TrackBed({ points }: { points: Pt[] }) {
       <LinearGradient
         style={StyleSheet.absoluteFill}
         colors={[
-          'rgba(11,13,14,0.55)',
-          'rgba(11,13,14,0.10)',
-          'rgba(11,13,14,0.10)',
-          'rgba(11,13,14,0.92)',
+          'rgba(0,0,0,0.55)',
+          'rgba(0,0,0,0.10)',
+          'rgba(0,0,0,0.10)',
+          'rgba(0,0,0,0.92)',
           color.void,
         ]}
         locations={[0, 0.26, 0.44, 0.74, 0.86]}

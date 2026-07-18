@@ -7,37 +7,54 @@
  * GPS status stays green — signal-light language doesn't bend to brand color.
  */
 export const color = {
-  void: '#0B0D0E', // base background
-  slate: '#14181A', // card / panel
-  slate2: '#1C2224', // raised control
-  white: '#E8EAEA', // primary text, data
+  // Premium pass (user direction, 2026-07-18): pitch black base, translucent
+  // glass surfaces, soft depth. The signal rule is unchanged — blue still
+  // means live/active and nothing else.
+  void: '#000000', // base background — true black
+  slate: '#0D0F12', // card / panel (over black)
+  slate2: '#16191E', // raised control
+  white: '#EDEFF1', // primary text, data
   signal: '#2E7DFF', // LIVE/ACTIVE ONLY
   signalDown: '#1748A6', // button travel shadow under signal
   amber: '#F5A623', // warnings only
   moss: '#3F5570', // dormant / secondary state
-  steel: '#8A9196', // labels, captions, units
-  hair: 'rgba(232,234,234,0.10)', // dividers
+  steel: '#8F969C', // labels, captions, units
+  hair: 'rgba(237,239,241,0.09)', // dividers
   gpsGood: '#7BC47F', // GPS status green — universal signal language
-  dim: '#5b6266', // inactive tab text, footnotes
+  dim: '#5D646B', // inactive tab text, footnotes
+  // Glass system — used on floating chrome (tab bar, sheets), never on
+  // dense content where blur hurts readability.
+  glass: 'rgba(255,255,255,0.05)',
+  glassBorder: 'rgba(255,255,255,0.09)',
+  glassStrong: 'rgba(22,26,31,0.72)',
+} as const;
+
+/** Soft elevation for cards and floating chrome (boxShadow strings). */
+export const shadow = {
+  card: '0 8px 24px rgba(0, 0, 0, 0.55)',
+  float: '0 12px 34px rgba(0, 0, 0, 0.65)',
+  signalGlow: '0 6px 22px rgba(46, 125, 255, 0.38)',
 } as const;
 
 /**
  * Loaded in the root layout via @expo-google-fonts. Use these family names,
- * never raw strings, so a font swap is one edit — which is exactly what
- * happened on 2026-07-16: Barlow Condensed/Archivo → Chakra Petch/Saira
- * (user decision — angular moto-dashboard identity over generic condensed).
+ * never raw strings, so a font swap is one edit — third swap (2026-07-18):
+ * one-family Manrope system, the open-source analog of Uber Move. Premium
+ * apps own a single family; the weights do the talking. "mono" keys stay for
+ * compatibility but now render Manrope semibold, tracked and uppercased by
+ * the label components.
  */
 export const font = {
-  display: 'ChakraPetch_700Bold',
-  displaySemi: 'ChakraPetch_600SemiBold',
-  displayMedium: 'ChakraPetch_500Medium',
-  body: 'Saira_400Regular',
-  bodyMedium: 'Saira_500Medium',
-  bodySemi: 'Saira_600SemiBold',
-  bodyBold: 'Saira_700Bold',
-  mono: 'JetBrainsMono_400Regular',
-  monoMedium: 'JetBrainsMono_500Medium',
-  monoBold: 'JetBrainsMono_700Bold',
+  display: 'Manrope_800ExtraBold',
+  displaySemi: 'Manrope_700Bold',
+  displayMedium: 'Manrope_600SemiBold',
+  body: 'Manrope_400Regular',
+  bodyMedium: 'Manrope_500Medium',
+  bodySemi: 'Manrope_600SemiBold',
+  bodyBold: 'Manrope_700Bold',
+  mono: 'Manrope_600SemiBold',
+  monoMedium: 'Manrope_600SemiBold',
+  monoBold: 'Manrope_700Bold',
 } as const;
 
 /** Layout constants (§8 layout patterns). */

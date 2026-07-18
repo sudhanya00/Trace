@@ -2,6 +2,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Loading } from '../../src/components/Loading';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import { exploreFeed, Post, PostTag, suggestedRiders, SuggestedRider } from '../../src/lib/db';
@@ -25,7 +26,7 @@ function ago(iso: string): string {
 export default function Explore() {
   const { profile } = useAuth();
   const [tag, setTag] = useState<PostTag | null>(null);
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [posts, setPosts] = useState<Post[] | null>(null);
   const [suggested, setSuggested] = useState<SuggestedRider[]>([]);
 
   useFocusEffect(
@@ -65,6 +66,9 @@ export default function Explore() {
         </View>
       </View>
 
+      {posts === null ? (
+        <Loading label="Finding the conversation" />
+      ) : (
       <FlatList
         data={posts}
         keyExtractor={(p) => p.id}
@@ -119,6 +123,7 @@ export default function Explore() {
           </Pressable>
         )}
       />
+      )}
     </View>
   );
 }
