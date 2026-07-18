@@ -17,14 +17,17 @@ import { PushButton } from '../../src/components/PushButton';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
+  approveCrewMember,
   Crew,
   CrewMember,
   CrewMessage,
   crewChat,
   crewRoster,
+  declineCrewRequest,
   joinCrew,
   leaveCrew,
   listInvites,
+  myMembership,
   RideInvite,
   rsvpInvite,
   sendCrewMessage,
@@ -44,6 +47,9 @@ export default function CrewRoom() {
   const [roster, setRoster] = useState<Map<string, CrewMember>>(new Map());
   const [messages, setMessages] = useState<CrewMessage[]>([]);
   const [member, setMember] = useState(false);
+  const [pendingMe, setPendingMe] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [requests, setRequests] = useState<CrewMember[]>([]);
   const [draft, setDraft] = useState('');
   const [invites, setInvites] = useState<RideInvite[]>([]);
   const rosterRef = useRef(roster);
@@ -53,9 +59,13 @@ export default function CrewRoom() {
     if (!id || !session) return;
     const { data: c } = await supabase.from('crews').select('*').eq('id', id).maybeSingle();
     setCrew(c);
+    const mine = await myMembership(session.user.id, id).catch(() => null);
+    setPendingMe(mine?.state === 'pending');
+    setIsAdmin(mine?.role === 'admin' && mine?.state === 'active');
     const r = await crewRoster(id).catch(() => []);
-    setRoster(new Map(r.map((m) => [m.profile_id, m])));
-    setMember(r.some((m) => m.profile_id === session.user.id));
+    setRoster(new Map(r.filter((m) => m.state === 'active').map((m) => [m.profile_id, m])));
+    setRequests(r.filter((m) => m.state === 'pending'));
+    setMember(mine?.state === 'active');
     setMessages(await crewChat(id).catch(() => []));
     setInvites(await listInvites(id).catch(() => []));
   }, [id, session]);
@@ -118,6 +128,12 @@ export default function CrewRoom() {
     }
   };
 
+  const onLeaveQuiet = async () => {
+    if (!session || !id) return;
+    await leaveCrew(session.user.id, id).catch(() => {});
+    load();
+  };
+
   const onLeave = () => {
     if (!session || !id) return;
     Alert.alert('Leave this crew?', undefined, [
@@ -156,6 +172,38 @@ export default function CrewRoom() {
 
       {member ? (
         <>
+          {isAdmin && requests.length > 0 && (
+            <View style={st.requestsWrap}>
+              <MonoLabel size={8.5} style={{ marginBottom: 8 }}>
+                Waiting at the gate · {requests.length}
+              </MonoLabel>
+              {requests.map((r) => (
+                <View key={r.profile_id} style={st.requestRow}>
+                  <Pressable style={{ flex: 1 }} onPress={() => router.push(`/rider/${r.profile_id}`)}>
+                    <Text style={st.requestName}>@{r.handle}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={async () => {
+                      await approveCrewMember(id!, r.profile_id).catch(() => {});
+                      load();
+                    }}
+                    style={[st.reqBtn, st.reqBtnOn]}
+                  >
+                    <Text style={[st.reqBtnText, { color: color.signal }]}>LET IN</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={async () => {
+                      await declineCrewRequest(id!, r.profile_id).catch(() => {});
+                      load();
+                    }}
+                    style={st.reqBtn}
+                  >
+                    <Text style={st.reqBtnText}>DECLINE</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
           {invites.length > 0 && (
             <View style={st.invitesStrip}>
               {invites.slice(0, 2).map((i) => (
@@ -212,11 +260,32 @@ export default function CrewRoom() {
             <Text style={st.leaveText}>Leave crew</Text>
           </Pressable>
         </>
+      ) : pendingMe ? (
+        <View style={st.joinWrap}>
+          {crew.description ? <Text style={st.desc}>{crew.description}</Text> : null}
+          <Text style={st.pendingNote}>
+            Request sent — the crew admin decides who gets in. The chat opens the moment they do.
+          </Text>
+          <PushButton
+            label="Withdraw request"
+            variant="slate"
+            onPress={onLeaveQuiet}
+            style={{ marginTop: 20 }}
+          />
+        </View>
       ) : (
         <View style={st.joinWrap}>
           {crew.description ? <Text style={st.desc}>{crew.description}</Text> : null}
-          <Text style={st.joinNote}>The chat opens when you're in.</Text>
-          <PushButton label="Join crew" onPress={onJoin} style={{ marginTop: 20 }} />
+          <Text style={st.joinNote}>
+            {crew.is_private
+              ? 'Private crew — the admin approves who joins.'
+              : "The chat opens when you're in."}
+          </Text>
+          <PushButton
+            label={crew.is_private ? 'Request to join' : 'Join crew'}
+            onPress={onJoin}
+            style={{ marginTop: 20 }}
+          />
         </View>
       )}
     </KeyboardAvoidingView>
@@ -306,4 +375,24 @@ const st = StyleSheet.create({
   joinWrap: { flex: 1, paddingHorizontal: layout.screenPadding, paddingTop: 26 },
   desc: { fontFamily: font.body, fontSize: 13.5, color: '#B9C0C3', lineHeight: 20 },
   joinNote: { fontFamily: font.body, fontSize: 12, color: color.steel, marginTop: 12 },
+  pendingNote: { fontFamily: font.body, fontSize: 12.5, color: color.amber, marginTop: 12, lineHeight: 18 },
+  requestsWrap: {
+    paddingHorizontal: layout.screenPadding,
+    paddingTop: 12,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: color.hair,
+  },
+  requestRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7 },
+  requestName: { fontFamily: font.bodySemi, fontSize: 13.5, color: color.white },
+  reqBtn: {
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate2,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  reqBtnOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
+  reqBtnText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2, color: color.steel },
 });

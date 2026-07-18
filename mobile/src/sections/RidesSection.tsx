@@ -1,19 +1,15 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { MonoLabel } from '../../src/components/ui';
-import { useAuth } from '../../src/lib/auth';
-import { Bike, listBikes, listMyRides, Ride } from '../../src/lib/db';
-import { listLocalRides, LocalRide, rideState } from '../../src/lib/localdb';
-import { syncPendingRides } from '../../src/lib/sync';
-import { color, font, layout } from '../../src/theme/tokens';
+import { MonoLabel } from '../components/ui';
+import { useAuth } from '../lib/auth';
+import { Bike, bikeTitle, listBikes, listMyRides, Ride } from '../lib/db';
+import { listLocalRides, LocalRide, rideState } from '../lib/localdb';
+import { syncPendingRides } from '../lib/sync';
+import { color, font } from '../theme/tokens';
 
-/**
- * Reverse-chron ride list (§9). Local-first: unsynced rides appear instantly
- * with their sync state; synced rides come from the server with the canonical
- * distance. One row model covers both.
- */
+/** The ride log, as a profile section. Local-first, same row model as before. */
 type Row = {
   id: string;
   startedAt: number;
@@ -25,7 +21,7 @@ type Row = {
   manual: boolean;
 };
 
-export default function Rides() {
+export function RidesSection() {
   const { session } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
   const [bikes, setBikes] = useState<Map<string, Bike>>(new Map());
@@ -38,8 +34,7 @@ export default function Rides() {
         const unsynced = local.filter((r) => r.sync_state !== 'synced');
         const server = session ? await listMyRides(session.user.id).catch(() => []) : [];
         const unsyncedIds = new Set(unsynced.map((r) => r.id));
-
-        const rows: Row[] = [
+        const merged: Row[] = [
           ...unsynced.map((r): Row => {
             const s = rideState(r.id);
             return {
@@ -47,7 +42,7 @@ export default function Rides() {
               startedAt: r.started_at,
               km: s ? s.distance_m / 1000 : null,
               gaps: s?.gap_count ?? 0,
-              title: null,
+              title: r.pending_title,
               bikeId: r.bike_id,
               sync: r.sync_state,
               manual: false,
@@ -66,10 +61,8 @@ export default function Rides() {
               manual: r.started_at === r.ended_at,
             })),
         ].sort((a, b) => b.startedAt - a.startedAt);
-
-        if (alive) setRows(rows);
+        if (alive) setRows(merged);
       };
-
       load();
       syncPendingRides().finally(load);
       if (session) {
@@ -86,58 +79,40 @@ export default function Rides() {
   );
 
   return (
-    <View style={st.root}>
-      <View style={st.head}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-          <Text style={st.h1}>Rides</Text>
-          <Pressable onPress={() => router.push('/ride/manual')} style={st.addManual}>
-            <Text style={st.addManualText}>+ BY HAND</Text>
-          </Pressable>
-        </View>
-      </View>
+    <View>
+      <Pressable onPress={() => router.push('/ride/manual')} style={st.addManual}>
+        <Text style={st.addManualText}>+ BY HAND</Text>
+      </Pressable>
       {rows.length === 0 ? (
-        <View style={st.empty}>
-          <MonoLabel size={9.5} style={{ marginBottom: 8 }}>
-            No rides yet
-          </MonoLabel>
-          <Text style={st.emptyText}>Record your first ride and it lands here.</Text>
-        </View>
+        <Text style={st.empty}>Record your first ride and it lands here.</Text>
       ) : (
-        <FlatList
-          data={rows}
-          keyExtractor={(r) => r.id}
-          contentContainerStyle={st.list}
-          renderItem={({ item }) => (
-            <RideRow row={item} bike={item.bikeId ? bikes.get(item.bikeId) ?? null : null} />
-          )}
-        />
+        rows.map((row) => {
+          const bike = row.bikeId ? bikes.get(row.bikeId) ?? null : null;
+          const date = new Date(row.startedAt);
+          return (
+            <Pressable key={row.id} onPress={() => router.push(`/ride/${row.id}`)}>
+              {({ pressed }) => (
+                <View style={[st.row, pressed && { backgroundColor: color.slate }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.rowTitle}>
+                      {row.title ??
+                        `${date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} · ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                    </Text>
+                    <Text style={st.rowSub} allowFontScaling={false}>
+                      {row.km != null ? `${row.km.toFixed(1)} km` : '—'}
+                      {bike ? ` · ${bikeTitle(bike)}` : ''}
+                      {row.manual ? ' · by hand' : ''}
+                      {row.gaps > 0 ? ` · ${row.gaps} gap${row.gaps > 1 ? 's' : ''}` : ''}
+                    </Text>
+                  </View>
+                  {row.sync !== 'server' && <SyncChip state={row.sync} />}
+                </View>
+              )}
+            </Pressable>
+          );
+        })
       )}
     </View>
-  );
-}
-
-function RideRow({ row, bike }: { row: Row; bike: Bike | null }) {
-  const date = new Date(row.startedAt);
-  return (
-    <Pressable onPress={() => router.push(`/ride/${row.id}`)}>
-      {({ pressed }) => (
-        <View style={[st.row, pressed && { backgroundColor: color.slate }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={st.rowTitle}>
-              {row.title ??
-                `${date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} · ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-            </Text>
-            <Text style={st.rowSub} allowFontScaling={false}>
-              {row.km != null ? `${row.km.toFixed(1)} km` : '—'}
-              {bike ? ` · ${bike.make} ${bike.model}` : ''}
-              {row.manual ? ' · by hand' : ''}
-              {row.gaps > 0 ? ` · ${row.gaps} gap${row.gaps > 1 ? 's' : ''}` : ''}
-            </Text>
-          </View>
-          {row.sync !== 'server' && <SyncChip state={row.sync} />}
-        </View>
-      )}
-    </Pressable>
   );
 }
 
@@ -153,25 +128,13 @@ function SyncChip({ state }: { state: LocalRide['sync_state'] }) {
 }
 
 const st = StyleSheet.create({
-  root: { flex: 1, backgroundColor: color.void },
-  head: { paddingHorizontal: layout.screenPadding, paddingTop: 64 },
-  h1: {
-    fontFamily: font.display,
-    fontSize: 41,
-    color: color.white,
-    textTransform: 'uppercase',
-    lineHeight: 42,
-  },
-  addManual: { paddingVertical: 8, paddingHorizontal: 4 },
+  addManual: { alignSelf: 'flex-end', paddingVertical: 4, paddingHorizontal: 4, marginBottom: 4 },
   addManualText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
-  empty: { flex: 1, paddingHorizontal: layout.screenPadding, paddingTop: 48 },
-  emptyText: { fontFamily: font.body, color: color.steel, fontSize: 13, lineHeight: 19 },
-  list: { paddingTop: 8, paddingBottom: 110 },
+  empty: { fontFamily: font.body, color: color.steel, fontSize: 13, lineHeight: 19 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
-    paddingHorizontal: layout.screenPadding,
     borderBottomWidth: 1,
     borderBottomColor: color.hair,
     gap: 10,

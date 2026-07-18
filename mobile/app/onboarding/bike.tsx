@@ -24,7 +24,7 @@ export default function FirstBike() {
       await createBike(session.user.id, input);
       // §6: aggressive-OEM handsets get the battery walkthrough right after
       // the garage exists — warn, don't gate.
-      router.replace(oemFamily() ? '/oem-whitelist?from=onboarding' : '/(tabs)/garage');
+      router.replace(oemFamily() ? '/oem-whitelist?from=onboarding' : '/(tabs)/explore');
     } catch (e) {
       Alert.alert('Could not save bike', (e as Error).message);
     } finally {

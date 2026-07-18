@@ -18,7 +18,7 @@ export default function OemWhitelist() {
   const [opened, setOpened] = useState<null | 'oem' | 'battery' | 'app'>(null);
 
   const done = () => {
-    if (from === 'onboarding') router.replace('/(tabs)/garage');
+    if (from === 'onboarding') router.replace('/(tabs)/explore');
     else router.back();
   };
 

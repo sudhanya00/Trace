@@ -27,6 +27,7 @@ import { AppState, View } from 'react-native';
 
 import { SessionProvider, useAuth } from '../src/lib/auth';
 import { registerPushToken } from '../src/lib/push';
+import { supabase } from '../src/lib/supabase';
 import { syncPendingRides } from '../src/lib/sync';
 import { color } from '../src/theme/tokens';
 
@@ -89,11 +90,20 @@ function RootLayout() {
   }, [fontsLoaded]);
 
   // §4 sync triggers: app foreground + connectivity regained
-  // (ride-stop triggers it directly).
+  // (ride-stop triggers it directly). Also the supabase-js RN requirement we
+  // owed it: token auto-refresh only runs while the app is foregrounded —
+  // without this, a long-dormant app cold-starts on an expired token (the
+  // handle-screen lockout bug).
   useEffect(() => {
+    supabase.auth.startAutoRefresh();
     syncPendingRides();
     const appSub = AppState.addEventListener('change', (s) => {
-      if (s === 'active') syncPendingRides();
+      if (s === 'active') {
+        supabase.auth.startAutoRefresh();
+        syncPendingRides();
+      } else {
+        supabase.auth.stopAutoRefresh();
+      }
     });
     const netSub = Network.addNetworkStateListener(({ isInternetReachable }) => {
       if (isInternetReachable) syncPendingRides();

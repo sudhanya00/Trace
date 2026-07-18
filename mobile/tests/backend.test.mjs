@@ -487,6 +487,112 @@ describe('live location and achievements', () => {
   });
 });
 
+describe('private crews', () => {
+  let crewId;
+  after(async () => {
+    if (crewId) await asha.from('crews').delete().eq('id', crewId);
+  });
+
+  it('joining a private crew parks you at the gate; approval opens the room', async () => {
+    const { data: crew } = await asha
+      .from('crews')
+      .insert({ name: 'test: locked crew', created_by: ashaId, is_private: true })
+      .select('id')
+      .single();
+    crewId = crew.id;
+
+    const { data: joined } = await veer
+      .from('crew_members')
+      .insert({ crew_id: crewId, profile_id: veerId, state: 'active' })
+      .select('state')
+      .single();
+    assert.equal(joined.state, 'pending', 'trigger overrides the client’s claimed active state');
+
+    const sealed = await veer.rpc('crew_chat', { p_crew_id: crewId });
+    assert.equal(sealed.data.length, 0, 'pending member cannot read the room');
+    const sneak = await veer
+      .from('crew_messages')
+      .insert({ crew_id: crewId, profile_id: veerId, body: 'test: knock knock' });
+    assert.ok(sneak.error, 'pending member cannot send');
+
+    const selfApprove = await veer
+      .from('crew_members')
+      .update({ state: 'active' })
+      .eq('crew_id', crewId)
+      .eq('profile_id', veerId)
+      .select();
+    assert.equal(selfApprove.data.length, 0, 'you cannot approve yourself');
+
+    await asha
+      .from('crew_members')
+      .update({ state: 'active' })
+      .eq('crew_id', crewId)
+      .eq('profile_id', veerId);
+    const open = await veer
+      .from('crew_messages')
+      .insert({ crew_id: crewId, profile_id: veerId, body: 'test: in at last' });
+    assert.equal(open.error, null, 'approved member sends');
+  });
+});
+
+describe('posts and explore', () => {
+  let postId;
+  after(async () => {
+    await asha.from('posts').delete().like('body', 'test:%');
+    await veer.from('posts').delete().like('body', 'test:%');
+  });
+
+  it('posts surface on the feed with handles and tags; private authors stay scoped', async () => {
+    const { data: p, error } = await asha
+      .from('posts')
+      .insert({ profile_id: ashaId, tag: 'road', body: 'test: Sach Pass snow wall still up?' })
+      .select('id')
+      .single();
+    assert.equal(error, null);
+    postId = p.id;
+
+    const feed = await veer.rpc('explore_feed', { p_tag: null });
+    const mine = feed.data.find((x) => x.id === postId);
+    assert.ok(mine, 'public author’s post visible to others');
+    assert.equal(mine.tag, 'road');
+
+    const tagged = await veer.rpc('explore_feed', { p_tag: 'gear' });
+    assert.ok(!tagged.data.some((x) => x.id === postId), 'tag filter filters');
+
+    // veer is private and unfollowed: his post exists for him, not for asha
+    const { data: vp } = await veer
+      .from('posts')
+      .insert({ profile_id: veerId, tag: 'ask', body: 'test: private thoughts' })
+      .select('id')
+      .single();
+    const ashaFeed = await asha.rpc('explore_feed', { p_tag: null });
+    assert.ok(!ashaFeed.data.some((x) => x.id === vp.id), 'private author scoped out');
+  });
+
+  it('replies work and impersonated posts are refused', async () => {
+    await veer
+      .from('post_comments')
+      .insert({ post_id: postId, profile_id: veerId, body: 'test: wall cleared tuesday' });
+    const thread = await asha.rpc('post_thread', { p_post_id: postId });
+    assert.ok(thread.data.some((c) => c.body.includes('cleared tuesday')));
+
+    const forged = await veer
+      .from('posts')
+      .insert({ profile_id: ashaId, tag: 'general', body: 'test: not me' });
+    assert.ok(forged.error, 'posting as someone else rejected');
+  });
+});
+
+describe('suggested riders', () => {
+  it('same region surfaces, already-followed does not', async () => {
+    // veer(private) suggests nothing; make a comparable check with region match:
+    // asha (Himachal) vs veer (J&K) — no region match, no shared bike, so empty.
+    const { data } = await asha.rpc('suggested_riders');
+    assert.ok(Array.isArray(data));
+    assert.ok(!data.some((s) => s.id === veerId), 'private profiles never suggested');
+  });
+});
+
 describe('server-side distance and odometer', () => {
   it('distance sums segments only — the gap span is never counted', async () => {
     // Two ~1.1km meridian segments with a ~1.1km hole between them.

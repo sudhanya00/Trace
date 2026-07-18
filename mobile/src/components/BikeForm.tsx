@@ -34,6 +34,7 @@ export function BikeForm({
   );
   const [mods, setMods] = useState(initial?.mods ?? '');
   const [type, setType] = useState<BikeType | null>(initial?.type ?? null);
+  const [nickname, setNickname] = useState(initial?.nickname ?? '');
 
   const yearNum = year.trim() ? Number(year.trim()) : null;
   const odoNum = odo.trim() ? Number(odo.trim().replace(',', '.')) : 0;
@@ -52,6 +53,14 @@ export function BikeForm({
         <Field label="Year" value={year} onChangeText={setYear} placeholder="2024" keyboardType="number-pad" style={{ flex: 1 }} />
         <Field label="Odometer (km)" value={odo} onChangeText={setOdo} placeholder="18442" keyboardType="numeric" style={{ flex: 2 }} />
       </View>
+      <Field
+        label="Name (if it has one)"
+        value={nickname}
+        onChangeText={setNickname}
+        placeholder="Kaali"
+        autoCapitalize="words"
+        style={{ marginTop: 18 }}
+      />
       <Field label="Mods" value={mods} onChangeText={setMods} placeholder="Rally footpegs, aux lights" autoCapitalize="sentences" style={{ marginTop: 18 }} />
 
       <MonoLabel size={8.5} style={{ marginTop: 18, marginBottom: 8 }}>
@@ -79,6 +88,7 @@ export function BikeForm({
             mods: mods.trim() || null,
             current_odometer_km: odoNum,
             type,
+            nickname: nickname.trim() || null,
           })
         }
         disabled={busy || !valid}

@@ -24,8 +24,20 @@ export type Bike = {
   current_odometer_km: number;
   is_active: boolean;
   type: BikeType | null;
+  nickname: string | null;
   created_at: string;
 };
+
+/** "KAALI" leads when the bike has a name; the model rides pillion. */
+export function bikeTitle(b: Pick<Bike, 'nickname' | 'make' | 'model'>): string {
+  return b.nickname?.trim() ? b.nickname.trim() : `${b.make} ${b.model}`;
+}
+
+export function bikeSubtitle(b: Pick<Bike, 'nickname' | 'make' | 'model' | 'year'>): string {
+  const parts = b.nickname?.trim() ? [`${b.make} ${b.model}`] : [];
+  if (b.year) parts.push(String(b.year));
+  return parts.join(' · ');
+}
 
 export type Ride = {
   id: string;
@@ -103,6 +115,7 @@ export type BikeInput = {
   mods: string | null;
   current_odometer_km: number;
   type: BikeType | null;
+  nickname: string | null;
 };
 
 export async function createBike(profileId: string, input: BikeInput): Promise<Bike> {
@@ -525,6 +538,7 @@ export type Crew = {
   region: string | null;
   description: string | null;
   created_by: string | null;
+  is_private: boolean;
   created_at: string;
   member_count?: number;
 };
@@ -543,6 +557,7 @@ export type CrewMember = {
   display_name: string | null;
   role: 'admin' | 'member';
   joined_at: string;
+  state: 'pending' | 'active';
 };
 
 export async function listCrews(): Promise<Crew[]> {
@@ -568,7 +583,7 @@ export async function myCrewIds(userId: string): Promise<Set<string>> {
 
 export async function createCrew(
   userId: string,
-  input: { name: string; region: string | null; description: string | null }
+  input: { name: string; region: string | null; description: string | null; is_private: boolean }
 ): Promise<Crew> {
   const { data, error } = await supabase
     .from('crews')
@@ -718,6 +733,168 @@ export async function listAchievements(profileId: string): Promise<{ key: string
     .order('achieved_at', { ascending: true });
   if (error) throw error;
   return data ?? [];
+}
+
+/** Approve a pending member (admin). Decline = declineCrewRequest. */
+export async function approveCrewMember(crewId: string, profileId: string): Promise<void> {
+  const { error } = await supabase
+    .from('crew_members')
+    .update({ state: 'active' })
+    .eq('crew_id', crewId)
+    .eq('profile_id', profileId);
+  if (error) throw error;
+}
+
+export async function declineCrewRequest(crewId: string, profileId: string): Promise<void> {
+  const { error } = await supabase
+    .from('crew_members')
+    .delete()
+    .eq('crew_id', crewId)
+    .eq('profile_id', profileId);
+  if (error) throw error;
+}
+
+/** The caller's own membership row for one crew (any state), if it exists. */
+export async function myMembership(
+  userId: string,
+  crewId: string
+): Promise<{ state: 'pending' | 'active'; role: string } | null> {
+  const { data, error } = await supabase
+    .from('crew_members')
+    .select('state, role')
+    .eq('crew_id', crewId)
+    .eq('profile_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export type PostTag = 'general' | 'ask' | 'tips' | 'gear' | 'bike' | 'road' | 'story';
+
+export type Post = {
+  id: string;
+  profile_id: string;
+  handle: string;
+  tag: PostTag;
+  body: string;
+  comment_count: number;
+  created_at: string;
+};
+
+export async function exploreFeed(tag: PostTag | null, before?: string): Promise<Post[]> {
+  const { data, error } = await supabase.rpc('explore_feed', {
+    p_tag: tag,
+    p_before: before ?? null,
+  });
+  if (error) throw error;
+  return (data ?? []).map((p: Post & { comment_count: number | string }) => ({
+    ...p,
+    comment_count: Number(p.comment_count),
+  }));
+}
+
+export async function activityOf(profileId: string): Promise<Post[]> {
+  const { data, error } = await supabase
+    .from('posts')
+    .select('id, profile_id, tag, body, created_at')
+    .eq('profile_id', profileId)
+    .order('created_at', { ascending: false })
+    .limit(30);
+  if (error) throw error;
+  return (data ?? []).map((p) => ({ ...p, handle: '', comment_count: 0 }) as Post);
+}
+
+export async function createPost(userId: string, tag: PostTag, body: string): Promise<void> {
+  const { error } = await supabase.from('posts').insert({ profile_id: userId, tag, body });
+  if (error) throw error;
+}
+
+export async function deletePost(id: string): Promise<void> {
+  const { error } = await supabase.from('posts').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function getPost(id: string): Promise<Post | null> {
+  // One feed call scoped by nothing returns newest 30; a single post needs its
+  // own fetch + handle. Reuse the thread function's visibility via posts table.
+  const { data, error } = await supabase
+    .from('posts')
+    .select('id, profile_id, tag, body, created_at')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const { data: author } = await supabase
+    .from('profiles')
+    .select('handle')
+    .eq('id', data.profile_id)
+    .maybeSingle();
+  return { ...data, handle: author?.handle ?? 'rider', comment_count: 0 } as Post;
+}
+
+export type PostComment = {
+  id: string;
+  profile_id: string;
+  handle: string;
+  body: string;
+  created_at: string;
+};
+
+export async function postThread(postId: string): Promise<PostComment[]> {
+  const { data, error } = await supabase.rpc('post_thread', { p_post_id: postId });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addPostComment(userId: string, postId: string, body: string): Promise<void> {
+  const { error } = await supabase
+    .from('post_comments')
+    .insert({ post_id: postId, profile_id: userId, body });
+  if (error) throw error;
+}
+
+export async function deletePostComment(id: string): Promise<void> {
+  const { error } = await supabase.from('post_comments').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function flagPost(userId: string, postId: string): Promise<void> {
+  const { error } = await supabase
+    .from('content_reports')
+    .insert({ reporter_id: userId, post_id: postId });
+  if (error) throw error;
+}
+
+export type SuggestedRider = {
+  id: string;
+  handle: string;
+  display_name: string | null;
+  home_region: string | null;
+  reason: string;
+};
+
+export async function suggestedRiders(): Promise<SuggestedRider[]> {
+  const { data, error } = await supabase.rpc('suggested_riders');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export type RiderCrew = {
+  id: string;
+  name: string;
+  region: string | null;
+  is_private: boolean;
+  role: string;
+  member_count: number;
+};
+
+export async function crewsOf(profileId: string): Promise<RiderCrew[]> {
+  const { data, error } = await supabase.rpc('crews_of', { p_profile_id: profileId });
+  if (error) throw error;
+  return (data ?? []).map((c: RiderCrew & { member_count: number | string }) => ({
+    ...c,
+    member_count: Number(c.member_count),
+  }));
 }
 
 /** §12b: one-tap report — the feedback loop that fixes GPS. */

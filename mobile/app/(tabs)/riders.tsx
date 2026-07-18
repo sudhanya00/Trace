@@ -87,7 +87,7 @@ export default function Riders() {
 
       {/* you — the door to your own profile */}
       {profile && (
-        <Pressable onPress={() => router.push('/profile')}>
+        <Pressable onPress={() => router.push('/(tabs)/profile')}>
           {({ pressed }) => (
             <View style={[st.youRow, pressed && { backgroundColor: color.slate }]}>
               <View style={{ flex: 1 }}>

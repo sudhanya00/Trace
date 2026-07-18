@@ -75,6 +75,8 @@ export default function TraceMap() {
     }, [])
   );
 
+  const [camResolved, setCamResolved] = useState(false);
+
   useEffect(() => {
     if (!session) return;
     listMyRides(session.user.id)
@@ -83,28 +85,41 @@ export default function TraceMap() {
         setTotalKm(rides.reduce((s, r) => s + Number(r.distance_km), 0));
       })
       .catch(() => {});
-    // Fit the camera to everything you've ridden — the map opens full.
-    traceBounds().then(setBounds).catch(() => {});
-    // Your puck: current position wearing the active bike's silhouette.
     listBikes(session.user.id)
       .then((bikes) => {
         const active = bikes.filter((b) => b.is_active);
         if (active.length) setBikeType(active[active.length - 1].type);
       })
       .catch(() => {});
+    // The camera waits until it knows where to open: your trace's bounds if
+    // any exist, else where you're standing right now — never a random
+    // default. A short deadline keeps a dead network from blanking the tab.
     (async () => {
-      const perm = await Location.getForegroundPermissionsAsync();
-      if (!perm.granted) return;
-      const pos =
-        (await Location.getLastKnownPositionAsync()) ??
-        (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null));
-      if (pos) setMe([pos.coords.longitude, pos.coords.latitude]);
+      const locate = (async () => {
+        const perm = await Location.getForegroundPermissionsAsync();
+        if (!perm.granted) return null;
+        const pos =
+          (await Location.getLastKnownPositionAsync()) ??
+          (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(
+            () => null
+          ));
+        return pos ? ([pos.coords.longitude, pos.coords.latitude] as [number, number]) : null;
+      })();
+      const boundsQ = traceBounds().catch(() => null);
+      const deadline = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 3000));
+      const [loc, b] = (await Promise.race([
+        Promise.all([locate, boundsQ]),
+        deadline.then(async () => [await Promise.race([locate, Promise.resolve(null)]), null]),
+      ])) as [[number, number] | null, [number, number, number, number] | null];
+      setMe(loc);
+      setBounds(b);
+      setCamResolved(true);
     })();
   }, [session]);
 
   return (
     <View style={st.root}>
-      {ready && (
+      {ready && camResolved && (
         <MapLibreMap
           style={{ flex: 1 }}
           mapStyle={STYLE_URL}
@@ -123,7 +138,7 @@ export default function TraceMap() {
                       bounds[3] + (bounds[3] - bounds[1]) * 0.15 + 0.01,
                     ],
                   }
-                : { center: me ?? FALLBACK, zoom: 8 }
+                : { center: me ?? FALLBACK, zoom: me ? 12 : 8 }
             }
           />
           {me && (

@@ -43,11 +43,11 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
-        name="garage"
+        name="explore"
         options={{
-          title: 'GARAGE',
+          title: 'EXPLORE',
           tabBarIcon: ({ focused }) => (
-            <Feather name="home" size={19} color={focused ? color.signal : color.dim} />
+            <Feather name="compass" size={19} color={focused ? color.signal : color.dim} />
           ),
         }}
       />
@@ -70,20 +70,20 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="rides"
-        options={{
-          title: 'RIDES',
-          tabBarIcon: ({ focused }) => (
-            <Feather name="list" size={19} color={focused ? color.signal : color.dim} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="riders"
         options={{
           title: 'RIDERS',
           tabBarIcon: ({ focused }) => (
             <Feather name="users" size={19} color={focused ? color.signal : color.dim} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'PROFILE',
+          tabBarIcon: ({ focused }) => (
+            <Feather name="user" size={19} color={focused ? color.signal : color.dim} />
           ),
         }}
       />

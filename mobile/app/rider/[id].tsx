@@ -6,6 +6,9 @@ import { Badges } from '../../src/components/Badges';
 import { PushButton } from '../../src/components/PushButton';
 import { Card, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
+import { ActivitySection } from '../../src/sections/ActivitySection';
+import { CrewsSection } from '../../src/sections/CrewsSection';
+import { Bike, bikeSubtitle, bikeTitle } from '../../src/lib/db';
 import { Camera, Map as MapLibreMap, Marker } from '@maplibre/maplibre-react-native';
 
 import { BikeMarker } from '../../src/components/BikeMarker';
@@ -37,6 +40,21 @@ export default function RiderDetail() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [rideStats, setRideStats] = useState<{ count: number; km: number } | null>(null);
   const [live, setLive] = useState<LivePosition | null>(null);
+  const [bikes, setBikes] = useState<Bike[]>([]);
+
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    supabase
+      .from('bikes')
+      .select('*')
+      .eq('profile_id', id)
+      .order('created_at')
+      .then(({ data }) => alive && setBikes(data ?? []));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
 
   // Riding now: poll the live point while the screen is open. RLS makes this
   // return nothing unless they accepted your follow.
@@ -196,6 +214,37 @@ export default function RiderDetail() {
         <PushButton label="Following — unfollow" variant="slate" onPress={onUnfollow} style={{ marginTop: 24 }} />
       )}
 
+      {bikes.length > 0 && (
+        <>
+          <MonoLabel size={9} style={{ marginTop: 30, marginBottom: 6 }}>
+            Garage
+          </MonoLabel>
+          {bikes.map((b) => (
+            <View key={b.id} style={st.bikeRow}>
+              <Text style={st.bikeName}>{bikeTitle(b)}</Text>
+              <Text style={st.bikeSub} allowFontScaling={false}>
+                {[bikeSubtitle(b), `${Math.round(Number(b.current_odometer_km)).toLocaleString('en-IN')} km`]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
+            </View>
+          ))}
+        </>
+      )}
+
+      {rider && (
+        <>
+          <MonoLabel size={9} style={{ marginTop: 30, marginBottom: 6 }}>
+            Crews
+          </MonoLabel>
+          <CrewsSection profileId={rider.id} />
+          <MonoLabel size={9} style={{ marginTop: 30, marginBottom: 6 }}>
+            Activity
+          </MonoLabel>
+          <ActivitySection profileId={rider.id} handle={rider.handle} />
+        </>
+      )}
+
       {routes.length > 0 && (
         <>
           <MonoLabel size={9} style={{ marginTop: 30, marginBottom: 10 }}>
@@ -270,6 +319,9 @@ const st = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(46,125,255,.25)',
   },
+  bikeRow: { paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: color.hair },
+  bikeName: { fontFamily: font.displaySemi, fontSize: 16, color: color.white, textTransform: 'uppercase' },
+  bikeSub: { fontFamily: font.mono, fontSize: 9, color: color.steel, marginTop: 4, fontVariant: ['tabular-nums'] },
   routePhoto: { width: '100%', height: 120, borderRadius: 8, marginBottom: 12 },
   routeName: { fontFamily: font.bodySemi, fontSize: 14, color: color.white },
   routeSub: {

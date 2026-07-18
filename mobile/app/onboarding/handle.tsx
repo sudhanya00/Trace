@@ -26,9 +26,16 @@ export default function Handle() {
       await refreshProfile();
       router.replace('/onboarding/bike');
     } catch (e) {
-      const msg = (e as { code?: string }).code === '23505'
-        ? 'That handle is taken — try another.'
-        : (e as Error).message;
+      const err = e as { code?: string; message?: string };
+      // A PK collision means this account ALREADY HAS a profile — we were
+      // routed here by a failed fetch, not a missing row. Recover, don't argue.
+      if (err.code === '23505' && err.message?.includes('profiles_pkey')) {
+        await refreshProfile().catch(() => {});
+        router.replace('/');
+        return;
+      }
+      const msg =
+        err.code === '23505' ? 'That handle is taken — try another.' : (err.message ?? 'Try again.');
       Alert.alert('Could not save handle', msg);
     } finally {
       setBusy(false);

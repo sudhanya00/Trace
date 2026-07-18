@@ -240,7 +240,7 @@ export default function RideFinished() {
 
         <PushButton label="Share this ride" onPress={share} height={64} style={{ marginTop: 22 }} />
 
-        <Pressable onPress={() => router.replace('/(tabs)/rides')} style={st.done}>
+        <Pressable onPress={() => router.replace('/(tabs)/profile')} style={st.done}>
           <Text style={st.doneText}>Done</Text>
         </Pressable>
       </ScrollView>

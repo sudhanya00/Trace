@@ -17,6 +17,7 @@ export default function Crews() {
   const [name, setName] = useState('');
   const [region, setRegion] = useState('');
   const [description, setDescription] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useFocusEffect(
@@ -38,6 +39,7 @@ export default function Crews() {
         name: name.trim(),
         region: region.trim() || null,
         description: description.trim() || null,
+        is_private: isPrivate,
       });
       router.push(`/crew/${crew.id}`);
     } catch (e) {
@@ -74,7 +76,10 @@ export default function Crews() {
                         .join(' · ')}
                     </MonoLabel>
                   </View>
-                  {mine.has(item.id) && <Text style={st.joinedChip}>JOINED</Text>}
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    {item.is_private && <Text style={st.privateChip}>PRIVATE</Text>}
+                    {mine.has(item.id) && <Text style={st.joinedChip}>JOINED</Text>}
+                  </View>
                 </View>
                 {item.description ? <Text style={st.crewDesc}>{item.description}</Text> : null}
               </Card>
@@ -87,6 +92,17 @@ export default function Crews() {
               <Field label="Crew name" value={name} onChangeText={setName} placeholder="Srinagar Sunday Riders" autoCapitalize="words" />
               <Field label="Region" value={region} onChangeText={setRegion} placeholder="Kashmir" autoCapitalize="words" style={{ marginTop: 14 }} />
               <Field label="One line about the crew" value={description} onChangeText={setDescription} placeholder="Dawn rides, chai at Nishat, back by ten." autoCapitalize="sentences" style={{ marginTop: 14 }} />
+              <MonoLabel size={8.5} style={{ marginTop: 16, marginBottom: 8 }}>
+                Who gets in
+              </MonoLabel>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Pressable onPress={() => setIsPrivate(false)} style={[st.privChip, !isPrivate && st.privChipOn]}>
+                  <Text style={[st.privChipText, !isPrivate && { color: color.signal }]}>OPEN — ANYONE JOINS</Text>
+                </Pressable>
+                <Pressable onPress={() => setIsPrivate(true)} style={[st.privChip, isPrivate && st.privChipOn]}>
+                  <Text style={[st.privChipText, isPrivate && { color: color.signal }]}>PRIVATE — YOU APPROVE</Text>
+                </Pressable>
+              </View>
               <PushButton label="Start the crew" onPress={submit} disabled={busy || name.trim().length < 3} style={{ marginTop: 18 }} />
               <Pressable onPress={() => setCreating(false)} style={st.cancelRow}>
                 <Text style={st.cancelText}>Cancel</Text>
@@ -138,6 +154,28 @@ const st = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3.5,
   },
+  privateChip: {
+    fontFamily: font.mono,
+    fontSize: 8,
+    letterSpacing: 1.2,
+    color: color.steel,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3.5,
+  },
+  privChip: {
+    flex: 1,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate,
+    borderRadius: 8,
+    paddingVertical: 10,
+  },
+  privChipOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
+  privChipText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1, color: color.steel },
   cancelRow: { alignSelf: 'center', marginTop: 14, padding: 8 },
   cancelText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
   back: { alignSelf: 'center', marginBottom: 28, padding: 8 },
