@@ -80,12 +80,12 @@ const st = StyleSheet.create({
   },
   label: {
     fontFamily: font.display,
-    color: '#F2F7FF',
+    color: '#151100',
     letterSpacing: 3,
     textTransform: 'uppercase',
   },
-  // The reference's signal-button halo: 0 14px 30px rgba(46,125,255,.32).
+  // The reference's signal-button halo: 0 14px 30px rgba(255,214,10,.32).
   glow: {
-    boxShadow: '0 14px 30px rgba(46, 125, 255, 0.32)',
+    boxShadow: '0 14px 30px rgba(255, 214, 10, 0.32)',
   },
 });

@@ -62,7 +62,9 @@ export function RideMap({ segments, height = 220, style }: { segments: Segments;
       ]}
     >
       <MapLibreMap
-        style={{ flex: 1 }}
+          logo={false}
+          attributionPosition={{ top: 110, right: 10 }}
+          style={{ flex: 1 }}
         mapStyle={STYLE_URL}
         dragPan={false}
         touchZoom={false}
@@ -84,7 +86,7 @@ export function RideMap({ segments, height = 220, style }: { segments: Segments;
             source="ride-track"
             filter={['!=', ['get', 'kind'], 'gap']}
             layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-            paint={{ 'line-color': '#4A90FF', 'line-width': 3.4 }}
+            paint={{ 'line-color': '#FFDE47', 'line-width': 3.4 }}
           />
           <Layer
             type="line"

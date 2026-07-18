@@ -514,7 +514,7 @@ const st = StyleSheet.create({
     paddingVertical: 9,
     marginRight: 8,
   },
-  bikeChipOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
+  bikeChipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
   bikeChipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
 
   warnRow: { marginHorizontal: layout.screenPadding, marginTop: 14 },

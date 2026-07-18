@@ -7,16 +7,17 @@
  * GPS status stays green — signal-light language doesn't bend to brand color.
  */
 export const color = {
-  // Premium pass (user direction, 2026-07-18): pitch black base, translucent
-  // glass surfaces, soft depth. The signal rule is unchanged — blue still
-  // means live/active and nothing else.
+  // Premium pass (2026-07-18): pitch black base, glass surfaces, soft depth.
+  // Signal went YELLOW (user decision) — the rule is unchanged: signal means
+  // live/active and nothing else. Warnings moved to orange so caution never
+  // wears the signal color.
   void: '#000000', // base background — true black
   slate: '#0D0F12', // card / panel (over black)
   slate2: '#16191E', // raised control
   white: '#EDEFF1', // primary text, data
-  signal: '#2E7DFF', // LIVE/ACTIVE ONLY
-  signalDown: '#1748A6', // button travel shadow under signal
-  amber: '#F5A623', // warnings only
+  signal: '#FFD60A', // LIVE/ACTIVE ONLY
+  signalDown: '#9C7F00', // button travel shadow under signal
+  amber: '#FF8A4C', // warnings only (orange — distinct from yellow signal)
   moss: '#3F5570', // dormant / secondary state
   steel: '#8F969C', // labels, captions, units
   hair: 'rgba(237,239,241,0.09)', // dividers
@@ -33,7 +34,7 @@ export const color = {
 export const shadow = {
   card: '0 8px 24px rgba(0, 0, 0, 0.55)',
   float: '0 12px 34px rgba(0, 0, 0, 0.65)',
-  signalGlow: '0 6px 22px rgba(46, 125, 255, 0.38)',
+  signalGlow: '0 6px 22px rgba(255, 214, 10, 0.38)',
 } as const;
 
 /**

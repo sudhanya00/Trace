@@ -43,9 +43,9 @@ export function TrackBed({ points }: { points: Pt[] }) {
       >
         <Defs>
           <SvgLinearGradient id="trk" x1="0" y1="1" x2="1" y2="0">
-            <Stop offset="0" stopColor="#2E7DFF" stopOpacity="0.3" />
-            <Stop offset="0.55" stopColor="#4A90FF" stopOpacity="0.8" />
-            <Stop offset="1" stopColor="#7FB4FF" stopOpacity="1" />
+            <Stop offset="0" stopColor="#FFD60A" stopOpacity="0.3" />
+            <Stop offset="0.55" stopColor="#FFDE47" stopOpacity="0.8" />
+            <Stop offset="1" stopColor="#FFF1A6" stopOpacity="1" />
           </SvgLinearGradient>
         </Defs>
 

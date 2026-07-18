@@ -52,7 +52,7 @@ const LOCATION_OPTIONS: Location.LocationTaskOptions = {
   foregroundService: {
     notificationTitle: 'TRACE — recording',
     notificationBody: 'Ride in progress',
-    notificationColor: '#2E7DFF',
+    notificationColor: '#FFD60A',
     killServiceOnDestroy: false,
   },
 };

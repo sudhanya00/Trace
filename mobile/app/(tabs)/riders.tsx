@@ -291,7 +291,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  smallBtnOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
+  smallBtnOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
   smallBtnText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2, color: color.steel },
   unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.signal },
   crewsRow: {

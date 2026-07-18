@@ -41,9 +41,9 @@ export const ShareCard = forwardRef<View, { data: ShareCardData }>(function Shar
         <Svg width={CW} height={MAP_H} viewBox={`0 0 ${CW} ${MAP_H}`}>
           <Defs>
             <SvgGrad id="strk" x1="0" y1="1" x2="1" y2="0">
-              <Stop offset="0" stopColor="#2E7DFF" stopOpacity="0.35" />
-              <Stop offset="0.55" stopColor="#4A90FF" stopOpacity="0.85" />
-              <Stop offset="1" stopColor="#7FB4FF" stopOpacity="1" />
+              <Stop offset="0" stopColor="#FFD60A" stopOpacity="0.35" />
+              <Stop offset="0.55" stopColor="#FFDE47" stopOpacity="0.85" />
+              <Stop offset="1" stopColor="#FFF1A6" stopOpacity="1" />
             </SvgGrad>
           </Defs>
           {!data.photoUri && (

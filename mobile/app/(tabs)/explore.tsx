@@ -146,7 +146,7 @@ const st = StyleSheet.create({
     paddingVertical: 9,
     marginBottom: 4,
   },
-  newPostText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: '#F2F7FF' },
+  newPostText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: '#151100' },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 16, paddingBottom: 14 },
   chip: {
     borderWidth: 1,
@@ -156,7 +156,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
-  chipOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
+  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
   chipText: { fontFamily: font.mono, fontSize: 8.5, letterSpacing: 1, color: color.steel },
   list: { paddingBottom: 110 },
   suggestWrap: { paddingLeft: layout.screenPadding, paddingVertical: 12, borderTopWidth: 1, borderTopColor: color.hair },

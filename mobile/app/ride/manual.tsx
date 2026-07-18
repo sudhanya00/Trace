@@ -124,7 +124,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  chipOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
+  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
   chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
   back: { alignSelf: 'center', marginTop: 20, padding: 8 },
   backText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },

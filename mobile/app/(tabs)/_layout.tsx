@@ -24,7 +24,7 @@ const ti = StyleSheet.create({
     justifyContent: 'center',
   },
   puckOn: {
-    backgroundColor: 'rgba(46,125,255,0.14)',
+    backgroundColor: 'rgba(255,214,10,0.14)',
     boxShadow: shadow.signalGlow,
   },
 });
@@ -52,7 +52,7 @@ export default function TabsLayout() {
         tabBarBackground: () => (
           <View style={{ flex: 1 }}>
             <LinearGradient
-              colors={['rgba(46,125,255,0)', 'rgba(46,125,255,0.35)', 'rgba(46,125,255,0)']}
+              colors={['rgba(255,214,10,0)', 'rgba(255,214,10,0.35)', 'rgba(255,214,10,0)']}
               start={{ x: 0, y: 0.5 }}
               end={{ x: 1, y: 0.5 }}
               style={{ height: 1.25 }}

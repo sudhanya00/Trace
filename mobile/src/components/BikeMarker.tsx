@@ -53,9 +53,9 @@ const st = StyleSheet.create({
     borderRadius: 17,
     backgroundColor: 'rgba(0,0,0,0.92)',
     borderWidth: 1.5,
-    borderColor: 'rgba(46,125,255,.55)',
+    borderColor: 'rgba(255,214,10,.55)',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0 4px 14px rgba(46, 125, 255, 0.35)',
+    boxShadow: '0 4px 14px rgba(255, 214, 10, 0.35)',
   },
 });

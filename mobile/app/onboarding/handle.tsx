@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
 
 import { PushButton } from '../../src/components/PushButton';
@@ -11,9 +11,15 @@ import { color, font, layout } from '../../src/theme/tokens';
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 
 export default function Handle() {
-  const { session, refreshProfile } = useAuth();
+  const { session, profile, refreshProfile } = useAuth();
   const [handle, setHandle] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // If a profile materializes (late fetch, cache, recovery), this screen has
+  // no business existing — leave immediately.
+  useEffect(() => {
+    if (profile) router.replace('/');
+  }, [profile]);
 
   const cleaned = handle.trim().toLowerCase();
   const valid = HANDLE_RE.test(cleaned);

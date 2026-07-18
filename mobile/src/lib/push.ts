@@ -20,7 +20,7 @@ export async function registerPushToken(userId: string): Promise<void> {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'TRACE',
         importance: Notifications.AndroidImportance.DEFAULT,
-        lightColor: '#2E7DFF',
+        lightColor: '#FFD60A',
       });
     }
 

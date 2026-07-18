@@ -74,7 +74,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
-  rsvpBtnOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
+  rsvpBtnOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
   rsvpText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2, color: color.steel },
   count: { fontFamily: font.mono, fontSize: 8.5, color: color.dim, fontVariant: ['tabular-nums'] },
 });

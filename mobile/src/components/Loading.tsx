@@ -46,7 +46,7 @@ const st = StyleSheet.create({
     height: 7,
     borderRadius: 4,
     backgroundColor: color.signal,
-    boxShadow: '0 0 12px rgba(46, 125, 255, 0.5)',
+    boxShadow: '0 0 12px rgba(255, 214, 10, 0.5)',
   },
   label: { fontFamily: font.bodyMedium, fontSize: 12.5, color: color.steel, letterSpacing: 0.3 },
 });

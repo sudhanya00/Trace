@@ -25,8 +25,13 @@ const AuthContext = createContext<AuthState>({
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionResolved, setSessionResolved] = useState(false);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(false);
+  // Profile state remembers WHO it was resolved for. This kills the cold-start
+  // race for good: the frame where a session exists but its profile fetch
+  // hasn't begun reads as loading — never as "no profile". That misread was
+  // the kill-and-reopen lockout.
+  const [profileState, setProfileState] = useState<{ uid: string | null; profile: Profile | null }>(
+    { uid: null, profile: null }
+  );
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -44,24 +49,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!userId) {
-      setProfile(null);
-      setProfileLoading(false);
+      setProfileState({ uid: null, profile: null });
       return;
     }
     let alive = true;
-    setProfileLoading(true);
-    // A failed fetch is NOT "no profile" — a cold start with an expired token
-    // 401s here, and treating that as a fresh account marched existing users
-    // back to the handle screen (the long-absence lockout bug). Only a
-    // successful query gets to say whether the profile exists; failures retry
-    // with backoff while the token refresh catches up.
+    // A failed fetch is NOT "no profile" — only a successful query gets to say
+    // whether the profile exists; failures retry with backoff while the token
+    // refresh catches up, then fall back to the cached profile (offline
+    // riders keep their app; recording works offline by design).
     let attempt = 0;
     const load = () => {
       getProfile(userId)
         .then((p) => {
           if (!alive) return;
-          setProfile(p);
-          setProfileLoading(false);
+          setProfileState({ uid: userId, profile: p });
           if (p) AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(p)).catch(() => {});
           else AsyncStorage.removeItem(PROFILE_CACHE_KEY).catch(() => {});
         })
@@ -72,19 +73,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             setTimeout(load, Math.min(8000, 500 * 2 ** attempt));
             return;
           }
-          // Server unreachable: an offline rider with a cached profile still
-          // gets their app (recording works offline by design). Only a rider
-          // the server has never confirmed falls through to onboarding.
           try {
             const cached = await AsyncStorage.getItem(PROFILE_CACHE_KEY);
             if (alive && cached) {
               const parsed = JSON.parse(cached) as Profile;
-              if (parsed.id === userId) setProfile(parsed);
+              if (parsed.id === userId) {
+                setProfileState({ uid: userId, profile: parsed });
+                return;
+              }
             }
           } catch {
-            /* no cache — onboarding it is */
+            /* fall through */
           }
-          if (alive) setProfileLoading(false);
+          // Server unreachable AND no cache: resolve as no-profile so a truly
+          // fresh account can still onboard.
+          if (alive) setProfileState({ uid: userId, profile: null });
         });
     };
     load();
@@ -95,12 +98,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = async () => {
     if (!userId) return;
-    setProfile(await getProfile(userId));
+    const p = await getProfile(userId);
+    setProfileState({ uid: userId, profile: p });
+    if (p) AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(p)).catch(() => {});
   };
+
+  // Resolved-for-the-current-user or it doesn't count: the value AND the
+  // loading flag both key off uid, so no render can ever read a stale or
+  // not-yet-started resolution as "this user has no profile".
+  const profile = profileState.uid === userId ? profileState.profile : null;
+  const profileSettled = userId === null || profileState.uid === userId;
 
   return (
     <AuthContext.Provider
-      value={{ session, profile, loading: !sessionResolved || profileLoading, refreshProfile }}
+      value={{ session, profile, loading: !sessionResolved || !profileSettled, refreshProfile }}
     >
       {children}
     </AuthContext.Provider>

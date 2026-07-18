@@ -123,6 +123,8 @@ export default function TraceMap() {
       {(!ready || !camResolved) && <Loading label="Reading your trace" />}
       {ready && camResolved && (
         <MapLibreMap
+          logo={false}
+          attributionPosition={{ top: 110, right: 10 }}
           style={{ flex: 1 }}
           mapStyle={STYLE_URL}
           touchPitch={false}
@@ -164,7 +166,7 @@ export default function TraceMap() {
               source="trace"
               source-layer="trace"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#4A90FF', 'line-width': 2.5, 'line-opacity': 0.18 }}
+              paint={{ 'line-color': '#FFDE47', 'line-width': 2.5, 'line-opacity': 0.18 }}
             />
             <Layer
               type="line"
@@ -172,7 +174,7 @@ export default function TraceMap() {
               source="trace"
               source-layer="trace"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#7FB4FF', 'line-width': 1.2, 'line-opacity': 0.5 }}
+              paint={{ 'line-color': '#FFF1A6', 'line-width': 1.2, 'line-opacity': 0.5 }}
             />
           </VectorSource>
         </MapLibreMap>

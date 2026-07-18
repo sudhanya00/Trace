@@ -180,7 +180,9 @@ export default function RiderDetail() {
           </View>
           <View style={st.liveMap}>
             <MapLibreMap
-              style={{ flex: 1 }}
+          logo={false}
+          attributionPosition={{ top: 110, right: 10 }}
+          style={{ flex: 1 }}
               mapStyle="https://tiles.openfreemap.org/styles/dark"
               dragPan={false}
               touchZoom={false}

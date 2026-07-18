@@ -154,7 +154,7 @@ const st = StyleSheet.create({
     lineHeight: 25,
   },
   tag: { paddingHorizontal: 7, paddingVertical: 3.5, borderRadius: 3, borderWidth: 1 },
-  tagActive: { backgroundColor: 'rgba(46,125,255,.14)', borderColor: 'rgba(46,125,255,.3)' },
+  tagActive: { backgroundColor: 'rgba(255,214,10,.14)', borderColor: 'rgba(255,214,10,.3)' },
   tagRest: { backgroundColor: 'rgba(63,85,112,.2)', borderColor: 'rgba(63,85,112,.42)' },
   tagText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2 },
   bikeStats: { flexDirection: 'row' },

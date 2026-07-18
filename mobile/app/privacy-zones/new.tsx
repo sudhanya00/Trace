@@ -86,6 +86,8 @@ export default function NewZone() {
     <View style={st.root}>
       <View style={st.mapWrap}>
         <MapLibreMap
+          logo={false}
+          attributionPosition={{ top: 110, right: 10 }}
           style={{ flex: 1 }}
           mapStyle={STYLE_URL}
           touchPitch={false}
@@ -192,7 +194,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  chipOn: { borderColor: 'rgba(46,125,255,.4)', backgroundColor: 'rgba(46,125,255,.10)' },
+  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
   chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
   cancel: { alignSelf: 'center', marginTop: 14, padding: 8 },
   cancelText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
