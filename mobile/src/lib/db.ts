@@ -53,6 +53,8 @@ export type Ride = {
   moving_s: number | null;
   stops_count: number | null;
   elev_gain_m: number | null;
+  /** The one crew this ride counts toward, or null for none. */
+  crew_id: string | null;
   created_at: string;
 };
 
@@ -549,6 +551,10 @@ export type CrewMessage = {
   profile_id: string;
   handle: string;
   body: string;
+  /** 'contribution' rows are ride attributions, written by trigger, not typed. */
+  kind: 'chat' | 'contribution';
+  ride_id: string | null;
+  distance_km: number | null;
   created_at: string;
 };
 
@@ -1038,6 +1044,28 @@ export async function profileStats(profileId: string): Promise<ProfileStats> {
     follower_count: n(row?.follower_count),
     following_count: n(row?.following_count),
   };
+}
+
+/**
+ * Attribute a ride to one of the rider's crews, or to none. Enforced server
+ * side too: the rides policy refuses a crew you aren't an active member of.
+ */
+export async function setRideCrew(rideId: string, crewId: string | null): Promise<void> {
+  const { error } = await supabase.from('rides').update({ crew_id: crewId }).eq('id', rideId);
+  if (error) throw error;
+}
+
+/** What this rider has given each of their crews so far. */
+export async function myCrewContributions(): Promise<
+  Map<string, { ride_count: number; total_km: number }>
+> {
+  const { data, error } = await supabase.rpc('my_crew_contributions');
+  if (error) throw error;
+  const out = new Map<string, { ride_count: number; total_km: number }>();
+  for (const r of (data ?? []) as { crew_id: string; ride_count: number; total_km: number }[]) {
+    out.set(r.crew_id, { ride_count: Number(r.ride_count), total_km: Number(r.total_km) });
+  }
+  return out;
 }
 
 /** Track shapes for a rider's ride list, one call. Simplified server-side and

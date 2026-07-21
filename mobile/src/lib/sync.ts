@@ -67,6 +67,7 @@ async function syncRide(ride: LocalRide, userId: string): Promise<void> {
         moving_s: Math.max(0, elapsedS - (s?.stopped_s ?? 0) - (s?.gap_duration_s ?? 0)),
         elev_gain_m: Math.round(s?.elev_gain_m ?? 0),
         title: ride.pending_title,
+        crew_id: ride.pending_crew_id,
       },
       { onConflict: 'id' }
     );

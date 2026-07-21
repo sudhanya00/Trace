@@ -84,7 +84,18 @@ export default function CrewRoom() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'crew_messages', filter: `crew_id=eq.${id}` },
         (payload) => {
-          const row = payload.new as { id: string; profile_id: string; body: string; created_at: string };
+          // Contribution rows arrive here too — written by trigger, so they
+          // carry the same shape but no joined handle. The roster supplies it,
+          // exactly as it does for chat.
+          const row = payload.new as {
+            id: string;
+            profile_id: string;
+            body: string;
+            kind?: 'chat' | 'contribution';
+            ride_id?: string | null;
+            distance_km?: number | null;
+            created_at: string;
+          };
           setMessages((prev) =>
             prev.some((m) => m.id === row.id)
               ? prev
@@ -94,6 +105,9 @@ export default function CrewRoom() {
                     profile_id: row.profile_id,
                     handle: rosterRef.current.get(row.profile_id)?.handle ?? 'rider',
                     body: row.body,
+                    kind: row.kind ?? 'chat',
+                    ride_id: row.ride_id ?? null,
+                    distance_km: row.distance_km ?? null,
                     created_at: row.created_at,
                   },
                   ...prev,
@@ -250,6 +264,24 @@ export default function CrewRoom() {
               <Text style={st.empty}>Quiet in here. Say where you're riding this weekend.</Text>
             }
             renderItem={({ item }) => {
+              // A contribution is an event in the crew's life, not something
+              // somebody said — so it spans the room instead of taking a side.
+              if (item.kind === 'contribution') {
+                return (
+                  <Pressable
+                    onPress={() => item.ride_id && router.push(`/ride/${item.ride_id}`)}
+                    style={st.contribution}
+                  >
+                    <View style={st.contribDot} />
+                    <Text style={st.contribText}>
+                      <Text style={st.contribWho}>@{item.handle}</Text> contributed{' '}
+                      <Text style={st.contribKm}>
+                        {Number(item.distance_km ?? 0).toFixed(1)} km
+                      </Text>
+                    </Text>
+                  </Pressable>
+                );
+              }
               const own = item.profile_id === session?.user.id;
               return (
                 <View style={[st.msg, own && st.msgOwn]}>
@@ -390,6 +422,24 @@ const st = StyleSheet.create({
 
   invitesStrip: { paddingHorizontal: layout.screenPadding, paddingTop: 12 },
   planRow: { alignSelf: 'flex-end', paddingHorizontal: layout.screenPadding, paddingVertical: 8 },
+  contribution: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+    alignSelf: 'stretch',
+    marginVertical: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,214,10,.22)',
+    backgroundColor: 'rgba(255,214,10,.07)',
+  },
+  contribDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: color.signal },
+  contribText: { fontFamily: font.body, fontSize: 12, color: color.steel },
+  contribWho: { fontFamily: font.bodySemi, color: color.white },
+  contribKm: { fontFamily: font.bodyBold, color: color.signal, fontVariant: ['tabular-nums'] },
   boardRow: {
     flexDirection: 'row',
     alignItems: 'center',

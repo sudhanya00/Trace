@@ -237,7 +237,17 @@ export async function startRide(bikeId: string | null): Promise<LocalRide> {
   ]);
   lastNotificationUpdate = 0;
   await Location.startLocationUpdatesAsync(RECORDING_TASK, LOCATION_OPTIONS);
-  return { id, bike_id: bikeId, started_at: now, ended_at: null, sync_state: 'recording', sync_attempts: 0, last_error: null, pending_title: null };
+  return {
+    id,
+    bike_id: bikeId,
+    started_at: now,
+    ended_at: null,
+    sync_state: 'recording',
+    sync_attempts: 0,
+    last_error: null,
+    pending_title: null,
+    pending_crew_id: null,
+  };
 }
 
 /** Resume after an interruption (§5 recovery): same ride, recorder restarted.

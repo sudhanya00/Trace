@@ -736,6 +736,132 @@ describe('crew leaderboards', () => {
   });
 });
 
+describe('crew contributions', () => {
+  let crewId;
+  let rideId;
+
+  before(async () => {
+    const { data: crew } = await asha
+      .from('crews')
+      .insert({ name: 'test: contrib crew', created_by: ashaId, on_leaderboard: true })
+      .select('id')
+      .single();
+    crewId = crew.id;
+  });
+
+  after(async () => {
+    await asha.from('rides').delete().like('title', 'test:%');
+    if (crewId) await asha.from('crews').delete().eq('id', crewId);
+  });
+
+  it('a ride counts for nobody until it is attributed', async () => {
+    rideId = crypto.randomUUID();
+    await asha.from('rides').insert({
+      id: rideId,
+      profile_id: ashaId,
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      title: 'test: contribution ride',
+    });
+    await asha.from('ride_tracks').upsert(
+      {
+        ride_id: rideId,
+        profile_id: ashaId,
+        geom: 'MULTILINESTRING((77.0 31.00, 77.0 31.02))',
+      },
+      { onConflict: 'ride_id' }
+    );
+
+    const board = await asha.rpc('crew_leaderboard');
+    const row = board.data.find((c) => c.id === crewId);
+    assert.equal(Number(row.lifetime_km), 0, 'an unattributed ride counts nowhere');
+
+    const chat = await asha.rpc('crew_chat', { p_crew_id: crewId });
+    assert.equal(chat.data.length, 0, 'and says nothing in the room');
+  });
+
+  it('attributing posts to the timeline and moves the total', async () => {
+    await asha.from('rides').update({ crew_id: crewId }).eq('id', rideId);
+
+    const board = await asha.rpc('crew_leaderboard');
+    const row = board.data.find((c) => c.id === crewId);
+    assert.ok(Number(row.lifetime_km) > 2, 'the crew total moved');
+    assert.ok(Number(row.today_km) > 2, 'and it counts toward today');
+
+    const chat = await asha.rpc('crew_chat', { p_crew_id: crewId });
+    const entry = chat.data.find((m) => m.ride_id === rideId);
+    assert.ok(entry, 'the contribution reached the timeline');
+    assert.equal(entry.kind, 'contribution');
+    assert.equal(entry.handle, 'asha');
+    assert.ok(Number(entry.distance_km) > 2, 'the entry carries the distance');
+  });
+
+  it('re-attributing moves the entry rather than duplicating it', async () => {
+    const { data: other } = await asha
+      .from('crews')
+      .insert({ name: 'test: second crew', created_by: ashaId, on_leaderboard: true })
+      .select('id')
+      .single();
+
+    await asha.from('rides').update({ crew_id: other.id }).eq('id', rideId);
+
+    const oldRoom = await asha.rpc('crew_chat', { p_crew_id: crewId });
+    assert.ok(!oldRoom.data.some((m) => m.ride_id === rideId), 'the old line is gone');
+    const newRoom = await asha.rpc('crew_chat', { p_crew_id: other.id });
+    assert.equal(
+      newRoom.data.filter((m) => m.ride_id === rideId).length,
+      1,
+      'exactly one line in the new room'
+    );
+
+    const board = await asha.rpc('crew_leaderboard');
+    assert.equal(Number(board.data.find((c) => c.id === crewId).lifetime_km), 0, 'old total drops');
+    assert.ok(Number(board.data.find((c) => c.id === other.id).lifetime_km) > 2, 'new total rises');
+
+    // ...and taking it back leaves nothing behind.
+    await asha.from('rides').update({ crew_id: null }).eq('id', rideId);
+    const cleared = await asha.rpc('crew_chat', { p_crew_id: other.id });
+    assert.ok(!cleared.data.some((m) => m.ride_id === rideId), 'un-attributing removes the line');
+
+    await asha.from('crews').delete().eq('id', other.id);
+  });
+
+  it('you cannot contribute to a crew you are not in', async () => {
+    const { data: theirs } = await asha
+      .from('crews')
+      .insert({ name: 'test: not veers crew', created_by: ashaId })
+      .select('id')
+      .single();
+
+    const veerRide = crypto.randomUUID();
+    await veer.from('rides').insert({
+      id: veerRide,
+      profile_id: veerId,
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      title: 'test: veer ride',
+    });
+    const forged = await veer.from('rides').update({ crew_id: theirs.id }).eq('id', veerRide).select();
+    assert.ok(
+      forged.error || forged.data.length === 0,
+      'a non-member cannot push distance into a crew'
+    );
+
+    await veer.from('rides').delete().eq('id', veerRide);
+    await asha.from('crews').delete().eq('id', theirs.id);
+  });
+
+  it('the client cannot forge a contribution line', async () => {
+    const forged = await asha.from('crew_messages').insert({
+      crew_id: crewId,
+      profile_id: ashaId,
+      body: 'contributed 9999.0 km',
+      kind: 'contribution',
+    });
+    assert.ok(forged.error, 'only the trigger writes contributions');
+  });
+});
+
 describe('profile stats', () => {
   it('own numbers resolve; a private rider’s do not leak', async () => {
     const mine = await asha.rpc('profile_stats', { p_profile_id: ashaId });

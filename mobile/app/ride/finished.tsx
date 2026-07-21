@@ -15,13 +15,27 @@ import {
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 
+import { CrewContribution } from '../../src/components/CrewContribution';
 import { Odometer } from '../../src/components/Odometer';
 import { PushButton } from '../../src/components/PushButton';
 import { ShareCard, ShareCardData } from '../../src/components/ShareCard';
 import { Field, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
-import { getBike, listBikes, listMyRides, ownTrackSegments, updateRide } from '../../src/lib/db';
-import { localRide, pointsForRide, rideState, setPendingTitle } from '../../src/lib/localdb';
+import {
+  getBike,
+  listBikes,
+  listMyRides,
+  ownTrackSegments,
+  setRideCrew,
+  updateRide,
+} from '../../src/lib/db';
+import {
+  localRide,
+  pointsForRide,
+  rideState,
+  setPendingCrew,
+  setPendingTitle,
+} from '../../src/lib/localdb';
 import { color, font, layout } from '../../src/theme/tokens';
 
 /**
@@ -42,6 +56,7 @@ export default function RideFinished() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { session } = useAuth();
   const [title, setTitle] = useState('');
+  const [crewId, setCrewId] = useState<string | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [segments, setSegments] = useState<[number, number][][]>([]);
   const [bikeName, setBikeName] = useState<string | null>(null);
@@ -122,6 +137,14 @@ export default function RideFinished() {
     setPendingTitle(ride.id, t.trim() || null);
     if (ride.sync_state === 'synced') {
       await updateRide(ride.id, { title: t.trim() || null }).catch(() => {});
+    }
+  };
+
+  const saveCrew = async (id: string | null) => {
+    setCrewId(id);
+    setPendingCrew(ride.id, id);
+    if (ride.sync_state === 'synced') {
+      await setRideCrew(ride.id, id).catch(() => {});
     }
   };
 
@@ -226,6 +249,10 @@ export default function RideFinished() {
           autoCapitalize="sentences"
           style={{ marginTop: 26 }}
         />
+
+        <View style={{ marginTop: 22 }}>
+          <CrewContribution value={crewId} onChange={saveCrew} distanceKm={distanceKm} />
+        </View>
 
         <Pressable onPress={takePhoto} style={st.photoBox}>
           {photoUri ? (

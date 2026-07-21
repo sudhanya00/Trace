@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { captureRef } from 'react-native-view-shot';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { CrewContribution } from '../../src/components/CrewContribution';
 import { PushButton } from '../../src/components/PushButton';
 import { RideMap, Segments } from '../../src/components/RideMap';
 import { ShareCard, ShareCardData } from '../../src/components/ShareCard';
@@ -18,6 +19,7 @@ import {
   Ride,
   Route,
   routeForRide,
+  setRideCrew,
   submitRecordingReport,
   updateRide,
 } from '../../src/lib/db';
@@ -48,6 +50,7 @@ export default function RideDetail() {
   const [bikeName, setBikeName] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
+  const [crewId, setCrewId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const cardRef = useRef<View>(null);
 
@@ -83,6 +86,7 @@ export default function RideDetail() {
       if (!ride || !alive) return;
       setTitle(ride.title ?? '');
       setNote(ride.note ?? '');
+      setCrewId(ride.crew_id ?? null);
       const segments = await ownTrackSegments(ride.id).catch(() => null);
       if (!alive) return;
       setDetail({ source: 'server', ride, segments });
@@ -230,6 +234,26 @@ export default function RideDetail() {
           <>
             <Field label="Title" value={title} onChangeText={setTitle} placeholder="Sangla to Chitkul" autoCapitalize="sentences" style={{ marginTop: 26 }} />
             <Field label="Note" value={note} onChangeText={setNote} placeholder="Broken tarmac after the bridge." autoCapitalize="sentences" style={{ marginTop: 16 }} />
+
+            {/* Attribution stays changeable: the crew you meant may not be the
+                crew you tapped at the end of eight hours in the saddle. */}
+            <View style={{ marginTop: 22 }}>
+              <CrewContribution
+                value={crewId}
+                onChange={async (c) => {
+                  const prev = crewId;
+                  setCrewId(c);
+                  try {
+                    await setRideCrew(detail.ride.id, c);
+                  } catch (e) {
+                    setCrewId(prev);
+                    Alert.alert('Could not change the crew', (e as Error).message);
+                  }
+                }}
+                distanceKm={Number((detail.ride as Ride).distance_km)}
+              />
+            </View>
+
             <PushButton label="Save" variant="slate" onPress={save} disabled={busy} style={{ marginTop: 22 }} />
             {route ? (
               <PushButton
