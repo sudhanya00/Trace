@@ -18,6 +18,7 @@ export default function Crews() {
   const [region, setRegion] = useState('');
   const [description, setDescription] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [onBoard, setOnBoard] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useFocusEffect(
@@ -40,6 +41,7 @@ export default function Crews() {
         region: region.trim() || null,
         description: description.trim() || null,
         is_private: isPrivate,
+        on_leaderboard: onBoard,
       });
       router.push(`/crew/${crew.id}`);
     } catch (e) {
@@ -103,6 +105,25 @@ export default function Crews() {
                   <Text style={[st.privChipText, isPrivate && { color: color.signal }]}>PRIVATE — YOU APPROVE</Text>
                 </Pressable>
               </View>
+
+              {/* Separate from privacy on purpose (item 6): an open crew can
+                  stay off the board, a private one can compete on it. */}
+              <MonoLabel size={8.5} style={{ marginTop: 16, marginBottom: 8 }}>
+                Global leaderboard
+              </MonoLabel>
+              <Pressable onPress={() => setOnBoard((v) => !v)} style={[st.boardRow, onBoard && st.privChipOn]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[st.boardText, onBoard && { color: color.signal }]}>
+                    {onBoard ? 'COMPETING' : 'NOT ON THE BOARD'}
+                  </Text>
+                  <Text style={st.boardSub}>
+                    Ranks the crew on riders and distance. Totals only — no member&apos;s rides are
+                    ever shown.
+                  </Text>
+                </View>
+                <View style={[st.check, onBoard && st.checkOn]} />
+              </Pressable>
+
               <PushButton label="Start the crew" onPress={submit} disabled={busy || name.trim().length < 3} style={{ marginTop: 18 }} />
               <Pressable onPress={() => setCreating(false)} style={st.cancelRow}>
                 <Text style={st.cancelText}>Cancel</Text>
@@ -176,6 +197,28 @@ const st = StyleSheet.create({
   },
   privChipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
   privChipText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1, color: color.steel },
+  boardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  boardText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1, color: color.steel },
+  boardSub: { fontFamily: font.body, fontSize: 11, color: color.dim, marginTop: 5, lineHeight: 16 },
+  check: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate2,
+  },
+  checkOn: { backgroundColor: color.signal, borderColor: color.signal },
   cancelRow: { alignSelf: 'center', marginTop: 14, padding: 8 },
   cancelText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
   back: { alignSelf: 'center', marginBottom: 28, padding: 8 },

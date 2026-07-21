@@ -31,6 +31,7 @@ import {
   RideInvite,
   rsvpInvite,
   sendCrewMessage,
+  setCrewLeaderboard,
 } from '../../src/lib/db';
 import { supabase } from '../../src/lib/supabase';
 import { color, font, layout } from '../../src/theme/tokens';
@@ -210,15 +211,33 @@ export default function CrewRoom() {
                 <InviteCard
                   key={i.id}
                   invite={i}
-                  onToggle={async (going) => {
+                  onToggle={async (going, answers) => {
                     if (!session) return;
-                    await rsvpInvite(session.user.id, i.id, going).catch(() => {});
+                    await rsvpInvite(session.user.id, i.id, going, answers).catch(() => {});
                     setInvites(await listInvites(id!).catch(() => invites));
                   }}
                 />
               ))}
             </View>
           )}
+          {/* The crew's own choice, made once by an admin (item 6). Kept
+              separate from private/open — they answer different questions. */}
+          {isAdmin && (
+            <Pressable
+              onPress={async () => {
+                const next = !crew.on_leaderboard;
+                setCrew({ ...crew, on_leaderboard: next });
+                await setCrewLeaderboard(id!, next).catch(() => setCrew(crew));
+              }}
+              style={st.boardRow}
+            >
+              <Text style={[st.boardText, crew.on_leaderboard && { color: color.signal }]}>
+                {crew.on_leaderboard ? 'ON THE GLOBAL LEADERBOARD' : 'JOIN THE GLOBAL LEADERBOARD'}
+              </Text>
+              <View style={[st.check, crew.on_leaderboard && st.checkOn]} />
+            </Pressable>
+          )}
+
           <Pressable onPress={() => router.push(`/invite/new?crewId=${id}`)} style={st.planRow}>
             <Text style={st.planText}>+ PLAN A RIDE</Text>
           </Pressable>
@@ -371,6 +390,35 @@ const st = StyleSheet.create({
 
   invitesStrip: { paddingHorizontal: layout.screenPadding, paddingTop: 12 },
   planRow: { alignSelf: 'flex-end', paddingHorizontal: layout.screenPadding, paddingVertical: 8 },
+  boardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: layout.screenPadding,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  boardText: {
+    flex: 1,
+    fontFamily: font.mono,
+    fontSize: 8.5,
+    letterSpacing: 1.2,
+    color: color.steel,
+  },
+  check: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate2,
+  },
+  checkOn: { backgroundColor: color.signal, borderColor: color.signal },
   planText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
   joinWrap: { flex: 1, paddingHorizontal: layout.screenPadding, paddingTop: 26 },
   desc: { fontFamily: font.body, fontSize: 13.5, color: '#B9C0C3', lineHeight: 20 },

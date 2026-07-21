@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 
+import { Avatar } from '../../src/components/Avatar';
 import { Field, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
@@ -106,11 +107,13 @@ export default function PostDetail() {
     >
       <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
         <Pressable onLongPress={onLongPressPost}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Pressable onPress={() => router.push(`/rider/${post.profile_id}`)} hitSlop={6}>
+              <Avatar url={post.avatar_url} handle={post.handle} size={36} />
+            </Pressable>
             <Pressable onPress={() => router.push(`/rider/${post.profile_id}`)} hitSlop={6}>
               <Text style={st.author}>@{post.handle}</Text>
             </Pressable>
-            <Text style={st.tag}>{post.tag.toUpperCase()}</Text>
             <Text style={st.when}>{ago(post.created_at)}</Text>
           </View>
           <Text style={st.body}>{post.body}</Text>
@@ -162,17 +165,6 @@ const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.void },
   content: { paddingHorizontal: layout.screenPadding, paddingTop: 76, paddingBottom: 60 },
   author: { fontFamily: font.bodySemi, fontSize: 14, color: color.white },
-  tag: {
-    fontFamily: font.mono,
-    fontSize: 7.5,
-    letterSpacing: 1.2,
-    color: color.steel,
-    borderWidth: 1,
-    borderColor: color.hair,
-    borderRadius: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 2.5,
-  },
   when: { fontFamily: font.mono, fontSize: 8.5, color: color.dim },
   body: { fontFamily: font.body, fontSize: 15, color: '#D7DBDD', lineHeight: 22, marginTop: 12 },
   empty: { fontFamily: font.body, fontSize: 12.5, color: color.dim, marginTop: 8 },

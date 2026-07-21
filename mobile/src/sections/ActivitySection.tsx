@@ -2,7 +2,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { activityOf, Post } from '../lib/db';
+import { Post, postsOf } from '../lib/db';
 import { color, font } from '../theme/tokens';
 
 function ago(iso: string): string {
@@ -13,7 +13,8 @@ function ago(iso: string): string {
   return `${Math.floor(m / 1440)}d`;
 }
 
-/** A rider's posts — their voice on the platform. */
+/** A rider's posts — their voice on the platform. Tags are gone (2026-07-21),
+ *  so the row leads with what was said, not with how it was filed. */
 export function ActivitySection({
   profileId,
   handle,
@@ -28,7 +29,7 @@ export function ActivitySection({
   useFocusEffect(
     useCallback(() => {
       let alive = true;
-      activityOf(profileId).then((p) => alive && setPosts(p)).catch(() => {});
+      postsOf(profileId).then((p) => alive && setPosts(p)).catch(() => {});
       return () => {
         alive = false;
       };
@@ -51,13 +52,17 @@ export function ActivitySection({
           <Pressable key={p.id} onPress={() => router.push(`/post/${p.id}`)}>
             {({ pressed }) => (
               <View style={[st.row, pressed && { backgroundColor: color.slate }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                  <Text style={st.tag}>{p.tag.toUpperCase()}</Text>
-                  <Text style={st.when}>{ago(p.created_at)}</Text>
-                </View>
                 <Text style={st.body} numberOfLines={4}>
                   {p.body}
                 </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <Text style={st.when}>{ago(p.created_at)}</Text>
+                  {p.comment_count > 0 && (
+                    <Text style={st.when} allowFontScaling={false}>
+                      · {p.comment_count} repl{p.comment_count === 1 ? 'y' : 'ies'}
+                    </Text>
+                  )}
+                </View>
               </View>
             )}
           </Pressable>
@@ -72,17 +77,6 @@ const st = StyleSheet.create({
   composeText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
   empty: { fontFamily: font.body, fontSize: 13, color: color.steel, lineHeight: 19 },
   row: { paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: color.hair },
-  tag: {
-    fontFamily: font.mono,
-    fontSize: 7.5,
-    letterSpacing: 1.2,
-    color: color.steel,
-    borderWidth: 1,
-    borderColor: color.hair,
-    borderRadius: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 2.5,
-  },
   when: { fontFamily: font.mono, fontSize: 8.5, color: color.dim },
-  body: { fontFamily: font.body, fontSize: 13.5, color: '#C6CBCE', lineHeight: 19, marginTop: 7 },
+  body: { fontFamily: font.body, fontSize: 14, color: '#C6CBCE', lineHeight: 20 },
 });

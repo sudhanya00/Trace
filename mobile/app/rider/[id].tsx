@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { Avatar } from '../../src/components/Avatar';
 import { Badges } from '../../src/components/Badges';
 import { PushButton } from '../../src/components/PushButton';
 import { Card, MonoLabel } from '../../src/components/ui';
@@ -138,12 +139,19 @@ export default function RiderDetail() {
             : 'PRIVATE — FOLLOWING'
           : 'PRIVATE PROFILE'}
       </MonoLabel>
-      <Text style={st.h1}>{handle ? `@${handle}` : 'Rider'}</Text>
-      {rider?.display_name || rider?.home_region ? (
-        <Text style={st.sub}>
-          {[rider?.display_name, rider?.home_region].filter(Boolean).join(' · ')}
-        </Text>
-      ) : null}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 }}>
+        <Avatar url={rider?.avatar_url} handle={handle} size={64} />
+        <View style={{ flex: 1 }}>
+          <Text style={st.h1} numberOfLines={1}>
+            {handle ? `@${handle}` : 'Rider'}
+          </Text>
+          {rider?.display_name || rider?.home_region ? (
+            <Text style={st.sub}>
+              {[rider?.display_name, rider?.home_region].filter(Boolean).join(' · ')}
+            </Text>
+          ) : null}
+        </View>
+      </View>
 
       {rider && rideStats && (
         <View style={st.strip}>

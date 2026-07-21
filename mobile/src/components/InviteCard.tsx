@@ -1,8 +1,19 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { RideInvite } from '../lib/db';
+import {
+  BIKE_TYPES,
+  BikeType,
+  EXPERIENCE,
+  Experience,
+  inviteAsks,
+  RideInvite,
+  RsvpAnswers,
+} from '../lib/db';
 import { color, font } from '../theme/tokens';
-import { Card, MonoLabel } from './ui';
+import { PushButton } from './PushButton';
+import { Sheet } from './Sheet';
+import { Card, ChipSelect, MonoLabel, YesNo } from './ui';
 
 function fmtWhen(iso: string): string {
   const d = new Date(iso);
@@ -16,43 +27,162 @@ function fmtWhen(iso: string): string {
   return `${day} · ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
-/** One planned ride, anywhere it appears: board or crew room. */
+/** The ride's shape, read back as a line of requirements. */
+function requirements(i: RideInvite): string[] {
+  const out: string[] = [];
+  if (i.bike_category) out.push(i.bike_category === 'any' ? 'ANY BIKE' : i.bike_category.toUpperCase());
+  if (i.gear_required) out.push('FULL GEAR');
+  else if (i.gear_required === false) out.push('GEAR OPTIONAL');
+  if (i.min_experience && i.min_experience !== 'any') out.push(`${i.min_experience.toUpperCase()}+`);
+  if (i.difficulty) out.push(i.difficulty.toUpperCase());
+  return out;
+}
+
+/** What this rider answered, read back so they can check and correct it. */
+function myAnswers(i: RideInvite): string {
+  const out: string[] = [];
+  if (i.my_bike_category) out.push(i.my_bike_category);
+  if (i.my_has_gear != null) out.push(i.my_has_gear ? 'has gear' : 'no gear');
+  if (i.my_experience) out.push(i.my_experience);
+  return out.join(' · ');
+}
+
+/**
+ * One planned ride, anywhere it appears: board, crew room, or explore feed.
+ * Joining asks whatever the creator asked (item 7, 2026-07-21) — and nothing
+ * more, because a question the ride didn't pose is friction with no payoff.
+ */
 export function InviteCard({
   invite,
   onToggle,
 }: {
   invite: RideInvite;
-  onToggle: (going: boolean) => void;
+  onToggle: (going: boolean, answers?: RsvpAnswers) => void;
 }) {
+  const asks = inviteAsks(invite);
+  const [sheet, setSheet] = useState(false);
+  const [bike, setBike] = useState<BikeType | null>(invite.my_bike_category);
+  const [gear, setGear] = useState<boolean | null>(invite.my_has_gear);
+  const [exp, setExp] = useState<Experience | null>(invite.my_experience);
+
+  const reqs = requirements(invite);
+  const answered = myAnswers(invite);
+
+  const press = () => {
+    if (invite.i_am_in) return onToggle(false); // dropping out asks nothing
+    if (asks.length === 0) return onToggle(true);
+    setSheet(true);
+  };
+
+  // Every question the ride asked needs an answer before the RSVP counts.
+  const complete =
+    (!asks.includes('bike_category') || bike != null) &&
+    (!asks.includes('has_gear') || gear != null) &&
+    (!asks.includes('experience') || exp != null);
+
+  const confirm = () => {
+    setSheet(false);
+    onToggle(true, {
+      ...(asks.includes('bike_category') ? { bike_category: bike } : {}),
+      ...(asks.includes('has_gear') ? { has_gear: gear } : {}),
+      ...(asks.includes('experience') ? { experience: exp } : {}),
+    });
+  };
+
   return (
-    <Card active={invite.i_am_in} style={{ marginBottom: 10 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-        <View style={{ flex: 1 }}>
-          <MonoLabel size={8.5} style={{ letterSpacing: 1.4 }}>
-            {fmtWhen(invite.starts_at).toUpperCase()}
-            {invite.region ? ` — ${invite.region.toUpperCase()}` : ''}
-          </MonoLabel>
-          <Text style={st.title}>{invite.title}</Text>
-          <Text style={st.sub}>
-            @{invite.handle}
-            {invite.meetup ? ` · ${invite.meetup}` : ''}
-          </Text>
-        </View>
-        <View style={{ alignItems: 'center', gap: 6 }}>
-          <Pressable
-            onPress={() => onToggle(!invite.i_am_in)}
-            style={[st.rsvpBtn, invite.i_am_in && st.rsvpBtnOn]}
-          >
-            <Text style={[st.rsvpText, invite.i_am_in && { color: color.signal }]}>
-              {invite.i_am_in ? "I'M IN" : 'COUNT ME IN'}
+    <>
+      <Card active={invite.i_am_in} style={{ marginBottom: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <MonoLabel size={8.5} style={{ letterSpacing: 1.4 }}>
+              {fmtWhen(invite.starts_at).toUpperCase()}
+              {invite.region ? ` — ${invite.region.toUpperCase()}` : ''}
+            </MonoLabel>
+            <Text style={st.title}>{invite.title}</Text>
+            <Text style={st.sub}>
+              @{invite.handle}
+              {invite.meetup ? ` · ${invite.meetup}` : ''}
             </Text>
-          </Pressable>
-          <Text style={st.count} allowFontScaling={false}>
-            {invite.rsvp_count} going
-          </Text>
+          </View>
+          <View style={{ alignItems: 'center', gap: 6 }}>
+            <Pressable onPress={press} style={[st.rsvpBtn, invite.i_am_in && st.rsvpBtnOn]}>
+              <Text style={[st.rsvpText, invite.i_am_in && { color: color.signal }]}>
+                {invite.i_am_in ? "I'M IN" : 'COUNT ME IN'}
+              </Text>
+            </Pressable>
+            <Text style={st.count} allowFontScaling={false}>
+              {invite.rsvp_count} going
+            </Text>
+          </View>
         </View>
-      </View>
-    </Card>
+
+        {reqs.length > 0 && (
+          <View style={st.reqRow}>
+            {reqs.map((r) => (
+              <Text key={r} style={st.req}>
+                {r}
+              </Text>
+            ))}
+          </View>
+        )}
+
+        {invite.i_am_in && answered ? (
+          <Pressable onPress={() => setSheet(true)} hitSlop={6}>
+            <Text style={st.mine}>You: {answered} — tap to change</Text>
+          </Pressable>
+        ) : null}
+      </Card>
+
+      <Sheet
+        visible={sheet}
+        onClose={() => setSheet(false)}
+        label={invite.title}
+        title="Before you join"
+      >
+        {asks.includes('bike_category') && (
+          <ChipSelect
+            label="What are you riding?"
+            options={BIKE_TYPES}
+            value={bike}
+            onChange={setBike}
+            style={{ marginBottom: 20 }}
+          />
+        )}
+        {asks.includes('has_gear') && (
+          <YesNo
+            label={invite.gear_required ? 'Full gear is required — do you have it?' : 'Riding in full gear?'}
+            value={gear}
+            onChange={setGear}
+            style={{ marginBottom: 20 }}
+          />
+        )}
+        {asks.includes('experience') && (
+          <ChipSelect
+            label="How much riding have you done?"
+            options={EXPERIENCE}
+            value={exp}
+            onChange={setExp}
+            style={{ marginBottom: 20 }}
+          />
+        )}
+
+        {/* An honest no is useful information, not a rejection. The ride's own
+            requirements are on the card above; the rider decides. */}
+        {invite.gear_required && gear === false && (
+          <Text style={st.warn}>
+            This ride asks for full gear. You can still join — the crew will know to expect you
+            without it.
+          </Text>
+        )}
+
+        <PushButton
+          label={invite.i_am_in ? 'Save' : "I'm in"}
+          onPress={confirm}
+          disabled={!complete}
+          style={{ marginTop: 4, marginBottom: 8 }}
+        />
+      </Sheet>
+    </>
   );
 }
 
@@ -77,4 +207,24 @@ const st = StyleSheet.create({
   rsvpBtnOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
   rsvpText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2, color: color.steel },
   count: { fontFamily: font.mono, fontSize: 8.5, color: color.dim, fontVariant: ['tabular-nums'] },
+  reqRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
+  req: {
+    fontFamily: font.mono,
+    fontSize: 7.5,
+    letterSpacing: 1.2,
+    color: color.steel,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3.5,
+  },
+  mine: { fontFamily: font.body, fontSize: 11, color: color.dim, marginTop: 10 },
+  warn: {
+    fontFamily: font.body,
+    fontSize: 12,
+    color: color.amber,
+    lineHeight: 18,
+    marginBottom: 16,
+  },
 });

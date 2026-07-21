@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -11,26 +12,36 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PushButton } from '../../src/components/PushButton';
-import { MonoLabel } from '../../src/components/ui';
+import { Avatar } from '../../src/components/Avatar';
 import { useAuth } from '../../src/lib/auth';
-import { createPost, PostTag } from '../../src/lib/db';
+import { createPost } from '../../src/lib/db';
 import { color, font, layout } from '../../src/theme/tokens';
 
-const TAGS: PostTag[] = ['general', 'ask', 'tips', 'gear', 'bike', 'road', 'story'];
+const MAX = 3000;
 
+/**
+ * The composer, rebuilt to the shape everyone already knows (co-founder
+ * decision 2026-07-21): Cancel left, Post right, your face beside a cursor
+ * that's already blinking. No heading to read, no tag to choose, no form to
+ * fill — the fastest path between having a thought and sending it.
+ */
 export default function NewPost() {
-  const { session } = useAuth();
-  const [tag, setTag] = useState<PostTag>('general');
+  const { session, profile } = useAuth();
+  const insets = useSafeAreaInsets();
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const trimmed = body.trim();
+  const canPost = trimmed.length >= 2 && !busy;
+  const left = MAX - body.length;
+
   const submit = async () => {
-    if (!session || body.trim().length < 2) return;
+    if (!session || !canPost) return;
     setBusy(true);
     try {
-      await createPost(session.user.id, tag, body.trim());
+      await createPost(session.user.id, trimmed);
       router.back();
     } catch (e) {
       Alert.alert('Could not post', (e as Error).message);
@@ -38,78 +49,106 @@ export default function NewPost() {
     }
   };
 
+  const discard = () => {
+    if (!trimmed) return router.back();
+    Alert.alert('Discard this?', 'What you wrote will be lost.', [
+      { text: 'Keep writing', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: () => router.back() },
+    ]);
+  };
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: color.void }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
-        <Text style={st.h1}>Say it</Text>
-
-        <TextInput
-          value={body}
-          onChangeText={setBody}
-          placeholder="Anyone ridden the Sach Pass road this month? Heard the snow wall's still up…"
-          placeholderTextColor={color.dim}
-          multiline
-          autoFocus
-          maxLength={3000}
-          style={st.input}
-        />
-
-        <MonoLabel size={8.5} style={{ marginTop: 18, marginBottom: 8 }}>
-          Tag
-        </MonoLabel>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {TAGS.map((t) => (
-            <Pressable key={t} onPress={() => setTag(t)} style={[st.chip, tag === t && st.chipOn]}>
-              <Text style={[st.chipText, tag === t && { color: color.signal }]}>{t.toUpperCase()}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <PushButton label="Post" onPress={submit} disabled={busy || body.trim().length < 2} style={{ marginTop: 26 }} />
-        <Pressable onPress={() => router.back()} style={st.cancel}>
-          <Text style={st.cancelText}>Cancel</Text>
+      <View style={[st.bar, { paddingTop: insets.top + 10 }]}>
+        <Pressable onPress={discard} hitSlop={10}>
+          <Text style={st.cancel}>Cancel</Text>
         </Pressable>
+        <Pressable
+          onPress={submit}
+          disabled={!canPost}
+          style={[st.postBtn, !canPost && st.postBtnOff]}
+          hitSlop={6}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#151100" />
+          ) : (
+            <Text style={[st.postText, !canPost && { color: color.dim }]}>Post</Text>
+          )}
+        </Pressable>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={st.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
+        <View style={st.row}>
+          <Avatar url={profile?.avatar_url} handle={profile?.handle} size={38} />
+          <TextInput
+            value={body}
+            onChangeText={setBody}
+            placeholder="What's the road like?"
+            placeholderTextColor={color.dim}
+            multiline
+            autoFocus
+            maxLength={MAX}
+            style={st.input}
+            textAlignVertical="top"
+          />
+        </View>
       </ScrollView>
+
+      {/* The counter earns its place only when the ceiling is in sight. */}
+      {left < 300 && (
+        <View style={[st.footer, { paddingBottom: insets.bottom + 12 }]}>
+          <Text style={[st.count, left < 0 && { color: color.amber }]} allowFontScaling={false}>
+            {left}
+          </Text>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
 
 const st = StyleSheet.create({
-  content: { paddingHorizontal: layout.screenPadding, paddingTop: 84, paddingBottom: 60 },
-  h1: {
-    fontFamily: font.display,
-    fontSize: 38,
-    color: color.white,
-    textTransform: 'uppercase',
-    lineHeight: 40,
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: layout.screenPadding,
+    paddingBottom: 12,
   },
+  cancel: { fontFamily: font.bodyMedium, fontSize: 15, color: color.white },
+  postBtn: {
+    backgroundColor: color.signal,
+    borderRadius: 999,
+    paddingHorizontal: 20,
+    paddingVertical: 9,
+    minWidth: 76,
+    alignItems: 'center',
+  },
+  postBtnOff: { backgroundColor: color.slate2 },
+  postText: { fontFamily: font.bodyBold, fontSize: 14, color: '#151100' },
+  content: { paddingHorizontal: layout.screenPadding, paddingTop: 6, paddingBottom: 40 },
+  row: { flexDirection: 'row', gap: 12 },
   input: {
-    marginTop: 20,
-    minHeight: 140,
-    backgroundColor: color.slate2,
-    borderWidth: 1,
-    borderColor: color.hair,
-    borderRadius: 12,
-    padding: 16,
+    flex: 1,
     color: color.white,
     fontFamily: font.body,
-    fontSize: 15,
-    lineHeight: 22,
-    textAlignVertical: 'top',
+    fontSize: 17,
+    lineHeight: 24,
+    paddingTop: 8,
+    minHeight: 200,
   },
-  chip: {
-    borderWidth: 1,
-    borderColor: color.hair,
-    backgroundColor: color.slate,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+  footer: {
+    paddingHorizontal: layout.screenPadding,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: color.hair,
+    alignItems: 'flex-end',
   },
-  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
-  chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
-  cancel: { alignSelf: 'center', marginTop: 16, padding: 8 },
-  cancelText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
+  count: { fontFamily: font.mono, fontSize: 11, color: color.steel, fontVariant: ['tabular-nums'] },
 });

@@ -2,9 +2,9 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { MonoLabel } from '../components/ui';
+import { TrackThumb } from '../components/TrackThumb';
 import { useAuth } from '../lib/auth';
-import { Bike, bikeTitle, listBikes, listMyRides, Ride } from '../lib/db';
+import { Bike, bikeTitle, listBikes, listMyRides, Ride, rideThumbs } from '../lib/db';
 import { listLocalRides, LocalRide, rideState } from '../lib/localdb';
 import { syncPendingRides } from '../lib/sync';
 import { color, font } from '../theme/tokens';
@@ -21,10 +21,11 @@ type Row = {
   manual: boolean;
 };
 
-export function RidesSection() {
+export function RidesSection({ profileId }: { profileId?: string } = {}) {
   const { session } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
   const [bikes, setBikes] = useState<Map<string, Bike>>(new Map());
+  const [thumbs, setThumbs] = useState<Map<string, [number, number][][]>>(new Map());
 
   useFocusEffect(
     useCallback(() => {
@@ -70,12 +71,16 @@ export function RidesSection() {
           .then((bs) => alive && setBikes(new Map(bs.map((b) => [b.id, b]))))
           .catch(() => {});
       }
+      const who = profileId ?? session?.user.id;
+      if (who) {
+        rideThumbs(who).then((t) => alive && setThumbs(t)).catch(() => {});
+      }
       const t = setInterval(load, 4000);
       return () => {
         alive = false;
         clearInterval(t);
       };
-    }, [session])
+    }, [session, profileId])
   );
 
   return (
@@ -93,6 +98,7 @@ export function RidesSection() {
             <Pressable key={row.id} onPress={() => router.push(`/ride/${row.id}`)}>
               {({ pressed }) => (
                 <View style={[st.row, pressed && { backgroundColor: color.slate }]}>
+                  <TrackThumb segments={thumbs.get(row.id) ?? []} />
                   <View style={{ flex: 1 }}>
                     <Text style={st.rowTitle}>
                       {row.title ??

@@ -539,6 +539,7 @@ export type Crew = {
   description: string | null;
   created_by: string | null;
   is_private: boolean;
+  on_leaderboard: boolean;
   created_at: string;
   member_count?: number;
 };
@@ -583,7 +584,13 @@ export async function myCrewIds(userId: string): Promise<Set<string>> {
 
 export async function createCrew(
   userId: string,
-  input: { name: string; region: string | null; description: string | null; is_private: boolean }
+  input: {
+    name: string;
+    region: string | null;
+    description: string | null;
+    is_private: boolean;
+    on_leaderboard: boolean;
+  }
 ): Promise<Crew> {
   const { data, error } = await supabase
     .from('crews')
@@ -632,10 +639,19 @@ export async function sendCrewMessage(userId: string, crewId: string, body: stri
   if (error) throw error;
 }
 
+/** What a planned ride asks for, and what a joiner answers back. */
+export type Experience = 'beginner' | 'intermediate' | 'advanced';
+export type Difficulty = 'easy' | 'moderate' | 'hard' | 'expert';
+
+export const EXPERIENCE: Experience[] = ['beginner', 'intermediate', 'advanced'];
+export const DIFFICULTY: Difficulty[] = ['easy', 'moderate', 'hard', 'expert'];
+export const BIKE_TYPES: BikeType[] = ['naked', 'sport', 'adv', 'cruiser', 'scrambler', 'tourer'];
+
 export type RideInvite = {
   id: string;
   created_by: string;
   handle: string;
+  avatar_url: string | null;
   crew_id: string | null;
   route_id: string | null;
   title: string;
@@ -644,7 +660,33 @@ export type RideInvite = {
   starts_at: string;
   rsvp_count: number;
   i_am_in: boolean;
+  // What the ride asks. Null means the creator didn't ask — and what wasn't
+  // asked is never put to the joiner either.
+  bike_category: BikeType | 'any' | null;
+  gear_required: boolean | null;
+  min_experience: Experience | 'any' | null;
+  difficulty: Difficulty | null;
+  // The caller's own answers, when they've RSVP'd.
+  my_bike_category: BikeType | null;
+  my_has_gear: boolean | null;
+  my_experience: Experience | null;
 };
+
+/** A joiner's answers to whatever the ride asked. */
+export type RsvpAnswers = {
+  bike_category?: BikeType | null;
+  has_gear?: boolean | null;
+  experience?: Experience | null;
+};
+
+/** Which questions a ride actually puts to a joiner — the creator's choice. */
+export function inviteAsks(i: RideInvite): (keyof RsvpAnswers)[] {
+  const asks: (keyof RsvpAnswers)[] = [];
+  if (i.bike_category) asks.push('bike_category');
+  if (i.gear_required != null) asks.push('has_gear');
+  if (i.min_experience) asks.push('experience');
+  return asks;
+}
 
 /** Upcoming invites: the public board (crewId null) or one crew's. */
 export async function listInvites(crewId: string | null): Promise<RideInvite[]> {
@@ -664,6 +706,10 @@ export async function createInvite(
     meetup: string | null;
     region: string | null;
     starts_at: Date;
+    bike_category: BikeType | 'any' | null;
+    gear_required: boolean | null;
+    min_experience: Experience | 'any' | null;
+    difficulty: Difficulty | null;
   }
 ): Promise<void> {
   const { error } = await supabase.from('ride_invites').insert({
@@ -673,16 +719,30 @@ export async function createInvite(
     meetup: input.meetup,
     region: input.region,
     starts_at: input.starts_at.toISOString(),
+    bike_category: input.bike_category,
+    gear_required: input.gear_required,
+    min_experience: input.min_experience,
+    difficulty: input.difficulty,
   });
   if (error) throw error;
 }
 
-export async function rsvpInvite(userId: string, inviteId: string, going: boolean): Promise<void> {
+/** Join or drop out. Answers upsert so a rider can change their bike or
+ *  correct themselves without leaving and rejoining. */
+export async function rsvpInvite(
+  userId: string,
+  inviteId: string,
+  going: boolean,
+  answers: RsvpAnswers = {}
+): Promise<void> {
   if (going) {
     const { error } = await supabase
       .from('invite_rsvps')
-      .insert({ invite_id: inviteId, profile_id: userId });
-    if (error && error.code !== '23505') throw error;
+      .upsert(
+        { invite_id: inviteId, profile_id: userId, ...answers },
+        { onConflict: 'invite_id,profile_id' }
+      );
+    if (error) throw error;
   } else {
     const { error } = await supabase
       .from('invite_rsvps')
@@ -769,21 +829,51 @@ export async function myMembership(
   return data;
 }
 
-export type PostTag = 'general' | 'ask' | 'tips' | 'gear' | 'bike' | 'road' | 'story';
-
 export type Post = {
   id: string;
   profile_id: string;
   handle: string;
-  tag: PostTag;
+  avatar_url: string | null;
   body: string;
   comment_count: number;
   created_at: string;
 };
 
-export async function exploreFeed(tag: PostTag | null, before?: string): Promise<Post[]> {
-  const { data, error } = await supabase.rpc('explore_feed', {
-    p_tag: tag,
+/**
+ * One explore stream (user + co-founder decision 2026-07-21): posts and public
+ * ride invites, newest first, no tags to pick and no filters to learn. `kind`
+ * is the discriminant — a ride row carries the whole invite alongside it so
+ * the feed can render an RSVP without a second call.
+ */
+export type FeedItem =
+  | ({ kind: 'post' } & Post)
+  | ({ kind: 'ride' } & Post & {
+      title: string;
+      meetup: string | null;
+      region: string | null;
+      starts_at: string;
+      rsvp_count: number;
+      i_am_in: boolean;
+      bike_category: BikeType | 'any' | null;
+      gear_required: boolean | null;
+      min_experience: Experience | 'any' | null;
+      difficulty: Difficulty | null;
+    });
+
+export async function exploreFeed(before?: string): Promise<FeedItem[]> {
+  const { data, error } = await supabase.rpc('explore_feed', { p_before: before ?? null });
+  if (error) throw error;
+  return (data ?? []).map((r: FeedItem & { comment_count: number | string; rsvp_count?: number | string }) => ({
+    ...r,
+    comment_count: Number(r.comment_count),
+    ...(r.kind === 'ride' ? { rsvp_count: Number(r.rsvp_count) } : {}),
+  }));
+}
+
+/** A rider's own posts, for the profile Posts tab. */
+export async function postsOf(profileId: string, before?: string): Promise<Post[]> {
+  const { data, error } = await supabase.rpc('posts_of', {
+    p_profile_id: profileId,
     p_before: before ?? null,
   });
   if (error) throw error;
@@ -793,19 +883,8 @@ export async function exploreFeed(tag: PostTag | null, before?: string): Promise
   }));
 }
 
-export async function activityOf(profileId: string): Promise<Post[]> {
-  const { data, error } = await supabase
-    .from('posts')
-    .select('id, profile_id, tag, body, created_at')
-    .eq('profile_id', profileId)
-    .order('created_at', { ascending: false })
-    .limit(30);
-  if (error) throw error;
-  return (data ?? []).map((p) => ({ ...p, handle: '', comment_count: 0 }) as Post);
-}
-
-export async function createPost(userId: string, tag: PostTag, body: string): Promise<void> {
-  const { error } = await supabase.from('posts').insert({ profile_id: userId, tag, body });
+export async function createPost(userId: string, body: string): Promise<void> {
+  const { error } = await supabase.from('posts').insert({ profile_id: userId, body });
   if (error) throw error;
 }
 
@@ -819,17 +898,22 @@ export async function getPost(id: string): Promise<Post | null> {
   // own fetch + handle. Reuse the thread function's visibility via posts table.
   const { data, error } = await supabase
     .from('posts')
-    .select('id, profile_id, tag, body, created_at')
+    .select('id, profile_id, body, created_at')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
   const { data: author } = await supabase
     .from('profiles')
-    .select('handle')
+    .select('handle, avatar_url')
     .eq('id', data.profile_id)
     .maybeSingle();
-  return { ...data, handle: author?.handle ?? 'rider', comment_count: 0 } as Post;
+  return {
+    ...data,
+    handle: author?.handle ?? 'rider',
+    avatar_url: author?.avatar_url ?? null,
+    comment_count: 0,
+  } as Post;
 }
 
 export type PostComment = {
@@ -884,6 +968,7 @@ export type RiderCrew = {
   name: string;
   region: string | null;
   is_private: boolean;
+  on_leaderboard: boolean;
   role: string;
   member_count: number;
 };
@@ -895,6 +980,102 @@ export async function crewsOf(profileId: string): Promise<RiderCrew[]> {
     ...c,
     member_count: Number(c.member_count),
   }));
+}
+
+/**
+ * The three boards, one call: riders, lifetime km, today's km. Opt-in per crew
+ * — a crew that hasn't joined the board isn't in this list at all, public or
+ * private. Distance is an aggregate over active members; no ride is exposed.
+ */
+export type LeaderboardCrew = {
+  id: string;
+  name: string;
+  region: string | null;
+  is_private: boolean;
+  member_count: number;
+  lifetime_km: number;
+  today_km: number;
+  i_am_in: boolean;
+};
+
+export async function crewLeaderboard(): Promise<LeaderboardCrew[]> {
+  const { data, error } = await supabase.rpc('crew_leaderboard');
+  if (error) throw error;
+  return (data ?? []).map((c: Record<string, unknown>) => ({
+    ...(c as unknown as LeaderboardCrew),
+    member_count: Number(c.member_count),
+    lifetime_km: Number(c.lifetime_km),
+    today_km: Number(c.today_km),
+  }));
+}
+
+/** Admin-only by RLS: the crew decides once whether it competes. */
+export async function setCrewLeaderboard(crewId: string, on: boolean): Promise<void> {
+  const { error } = await supabase.from('crews').update({ on_leaderboard: on }).eq('id', crewId);
+  if (error) throw error;
+}
+
+/** The profile header's numbers, one call. */
+export type ProfileStats = {
+  total_km: number;
+  ride_count: number;
+  bike_count: number;
+  crew_count: number;
+  follower_count: number;
+  following_count: number;
+};
+
+export async function profileStats(profileId: string): Promise<ProfileStats> {
+  const { data, error } = await supabase.rpc('profile_stats', { p_profile_id: profileId });
+  if (error) throw error;
+  const row = (data ?? [])[0];
+  const n = (v: unknown) => Number(v ?? 0);
+  return {
+    total_km: n(row?.total_km),
+    ride_count: n(row?.ride_count),
+    bike_count: n(row?.bike_count),
+    crew_count: n(row?.crew_count),
+    follower_count: n(row?.follower_count),
+    following_count: n(row?.following_count),
+  };
+}
+
+/** Track shapes for a rider's ride list, one call. Simplified server-side and
+ *  drawn as SVG — see TrackThumb for why this isn't a map. */
+export async function rideThumbs(profileId: string): Promise<Map<string, [number, number][][]>> {
+  const { data, error } = await supabase.rpc('ride_thumbs', { p_profile_id: profileId });
+  if (error) throw error;
+  const out = new Map<string, [number, number][][]>();
+  for (const row of (data ?? []) as { ride_id: string; geom: GeoJson | null }[]) {
+    const segs = multiLineCoords(row.geom);
+    if (segs.length) out.set(row.ride_id, segs);
+  }
+  return out;
+}
+
+type GeoJson =
+  | { type: 'MultiLineString'; coordinates: [number, number][][] }
+  | { type: 'LineString'; coordinates: [number, number][] }
+  | { type: string; coordinates?: unknown };
+
+/** ST_Difference can hand back either shape depending on what the clip left. */
+function multiLineCoords(g: GeoJson | null): [number, number][][] {
+  if (!g) return [];
+  if (g.type === 'MultiLineString') return (g as { coordinates: [number, number][][] }).coordinates;
+  if (g.type === 'LineString') return [(g as { coordinates: [number, number][] }).coordinates];
+  return [];
+}
+
+/** Avatar upload — own-folder bucket, same shape as route photos. Cache-busted
+ *  on read: the path is stable, so a replaced face needs the query string. */
+export async function uploadAvatar(userId: string, bytes: ArrayBuffer): Promise<string> {
+  const path = `${userId}/avatar.jpg`;
+  const { error } = await supabase.storage
+    .from('avatars')
+    .upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
+  if (error) throw error;
+  const url = supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl;
+  return `${url}?v=${Date.now()}`;
 }
 
 /** §12b: one-tap report — the feedback loop that fixes GPS. */

@@ -1,6 +1,7 @@
 import { ReactNode, useState } from 'react';
 import {
   KeyboardTypeOptions,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -109,6 +110,88 @@ export function Field({
   );
 }
 
+/**
+ * A row of choices. Signal marks the live one — the same rule the whole app
+ * runs on, applied to selection. `onChange` receives null when the current
+ * choice is tapped again and `clearable` is set, which is how an optional
+ * question gets un-asked.
+ */
+export function ChipSelect<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  clearable = false,
+  labelOf,
+  style,
+}: {
+  label?: string;
+  options: readonly T[];
+  value: T | null;
+  onChange: (v: T | null) => void;
+  clearable?: boolean;
+  labelOf?: (v: T) => string;
+  style?: ViewStyle;
+}) {
+  return (
+    <View style={style}>
+      {label ? <MonoLabel size={8.5} style={{ marginBottom: 8 }}>{label}</MonoLabel> : null}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {options.map((o) => {
+          const on = value === o;
+          return (
+            <Pressable
+              key={o}
+              onPress={() => onChange(on && clearable ? null : o)}
+              style={[st.chip, on && st.chipOn]}
+            >
+              <Text style={[st.chipText, on && { color: color.signal }]}>
+                {(labelOf ? labelOf(o) : o).toUpperCase()}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/** The Y/N question, as its own control — three states, because "not asked"
+ *  is a real answer and null must stay reachable. */
+export function YesNo({
+  label,
+  value,
+  onChange,
+  clearable = false,
+  style,
+}: {
+  label: string;
+  value: boolean | null;
+  onChange: (v: boolean | null) => void;
+  clearable?: boolean;
+  style?: ViewStyle;
+}) {
+  return (
+    <View style={style}>
+      <MonoLabel size={8.5} style={{ marginBottom: 8 }}>{label}</MonoLabel>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {([true, false] as const).map((b) => {
+          const on = value === b;
+          return (
+            <Pressable
+              key={String(b)}
+              onPress={() => onChange(on && clearable ? null : b)}
+              style={[st.chip, on && st.chipOn]}
+            >
+              <Text style={[st.chipText, on && { color: color.signal }]}>{b ? 'YES' : 'NO'}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 /** Data strip cell: hairline-ruled value cells — rules, not boxes (§8 layout). */
 export function DataCell({
   label,
@@ -165,6 +248,16 @@ const st = StyleSheet.create({
   inputFocused: {
     borderColor: color.steel,
   },
+  chip: {
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
   cell: { flex: 1, paddingVertical: 13 },
   cellDivider: { borderLeftWidth: 1, borderLeftColor: color.hair, paddingLeft: 16 },
   cellValue: {
