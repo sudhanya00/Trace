@@ -523,15 +523,27 @@ describe('private crews', () => {
       .select();
     assert.equal(selfApprove.data.length, 0, 'you cannot approve yourself');
 
-    await asha
+    const approved = await asha
       .from('crew_members')
       .update({ state: 'active' })
       .eq('crew_id', crewId)
-      .eq('profile_id', veerId);
+      .eq('profile_id', veerId)
+      .select();
+    assert.equal(approved.error, null, 'the admin can actually approve');
+    assert.equal(approved.data.length, 1, 'approval changed exactly one row');
+
     const open = await veer
       .from('crew_messages')
       .insert({ crew_id: crewId, profile_id: veerId, body: 'test: in at last' });
     assert.equal(open.error, null, 'approved member sends');
+
+    // The grant is column-scoped: state only, never role.
+    const promote = await asha
+      .from('crew_members')
+      .update({ role: 'admin' })
+      .eq('crew_id', crewId)
+      .eq('profile_id', veerId);
+    assert.ok(promote.error, 'an admin cannot mint another admin through the update path');
   });
 });
 
@@ -542,31 +554,36 @@ describe('posts and explore', () => {
     await veer.from('posts').delete().like('body', 'test:%');
   });
 
-  it('posts surface on the feed with handles and tags; private authors stay scoped', async () => {
+  it('posts surface on the feed with handles; private authors stay scoped', async () => {
     const { data: p, error } = await asha
       .from('posts')
-      .insert({ profile_id: ashaId, tag: 'road', body: 'test: Sach Pass snow wall still up?' })
+      .insert({ profile_id: ashaId, body: 'test: Sach Pass snow wall still up?' })
       .select('id')
       .single();
     assert.equal(error, null);
     postId = p.id;
 
-    const feed = await veer.rpc('explore_feed', { p_tag: null });
+    const feed = await veer.rpc('explore_feed', {});
     const mine = feed.data.find((x) => x.id === postId);
     assert.ok(mine, 'public author’s post visible to others');
-    assert.equal(mine.tag, 'road');
-
-    const tagged = await veer.rpc('explore_feed', { p_tag: 'gear' });
-    assert.ok(!tagged.data.some((x) => x.id === postId), 'tag filter filters');
+    assert.equal(mine.kind, 'post', 'feed rows are discriminated by kind');
+    assert.equal(mine.handle, 'asha');
 
     // veer is private and unfollowed: his post exists for him, not for asha
     const { data: vp } = await veer
       .from('posts')
-      .insert({ profile_id: veerId, tag: 'ask', body: 'test: private thoughts' })
+      .insert({ profile_id: veerId, body: 'test: private thoughts' })
       .select('id')
       .single();
-    const ashaFeed = await asha.rpc('explore_feed', { p_tag: null });
+    const ashaFeed = await asha.rpc('explore_feed', {});
     assert.ok(!ashaFeed.data.some((x) => x.id === vp.id), 'private author scoped out');
+  });
+
+  it('tags are gone from the schema entirely', async () => {
+    const tagged = await asha
+      .from('posts')
+      .insert({ profile_id: ashaId, body: 'test: tagged', tag: 'road' });
+    assert.ok(tagged.error, 'the tag column no longer exists');
   });
 
   it('replies work and impersonated posts are refused', async () => {
@@ -576,10 +593,167 @@ describe('posts and explore', () => {
     const thread = await asha.rpc('post_thread', { p_post_id: postId });
     assert.ok(thread.data.some((c) => c.body.includes('cleared tuesday')));
 
-    const forged = await veer
-      .from('posts')
-      .insert({ profile_id: ashaId, tag: 'general', body: 'test: not me' });
+    const forged = await veer.from('posts').insert({ profile_id: ashaId, body: 'test: not me' });
     assert.ok(forged.error, 'posting as someone else rejected');
+  });
+
+  it('posts_of returns a rider’s own posts, visibility-gated', async () => {
+    const own = await asha.rpc('posts_of', { p_profile_id: ashaId });
+    assert.ok(own.data.some((x) => x.id === postId), 'own posts come back');
+    const peeking = await asha.rpc('posts_of', { p_profile_id: veerId });
+    assert.equal(peeking.data.length, 0, 'a private rider’s posts stay private');
+  });
+});
+
+describe('the unified feed and planned-ride detail', () => {
+  let inviteId;
+  after(async () => {
+    await asha.from('ride_invites').delete().like('title', 'test:%');
+  });
+
+  it('public ride invites ride the explore feed alongside posts', async () => {
+    const { data: inv, error } = await asha
+      .from('ride_invites')
+      .insert({
+        created_by: ashaId,
+        crew_id: null,
+        title: 'test: dawn run',
+        starts_at: new Date(Date.now() + 86400e3).toISOString(),
+        bike_category: 'adv',
+        gear_required: true,
+        min_experience: 'intermediate',
+        difficulty: 'hard',
+      })
+      .select('id')
+      .single();
+    assert.equal(error, null);
+    inviteId = inv.id;
+
+    const feed = await veer.rpc('explore_feed', {});
+    const row = feed.data.find((x) => x.id === inviteId);
+    assert.ok(row, 'the invite reached the feed');
+    assert.equal(row.kind, 'ride');
+    assert.equal(row.difficulty, 'hard');
+    assert.equal(row.gear_required, true);
+    assert.equal(row.min_experience, 'intermediate');
+  });
+
+  it('crew invites stay in their crew and never reach the public feed', async () => {
+    const { data: crew } = await asha
+      .from('crews')
+      .insert({ name: 'test: feed scoping crew', created_by: ashaId })
+      .select('id')
+      .single();
+    const { data: inv } = await asha
+      .from('ride_invites')
+      .insert({
+        created_by: ashaId,
+        crew_id: crew.id,
+        title: 'test: crew only run',
+        starts_at: new Date(Date.now() + 86400e3).toISOString(),
+      })
+      .select('id')
+      .single();
+
+    const feed = await veer.rpc('explore_feed', {});
+    assert.ok(!feed.data.some((x) => x.id === inv.id), 'crew invite is not public discovery');
+    await asha.from('crews').delete().eq('id', crew.id);
+  });
+
+  it('a joiner’s answers round-trip through invite_list', async () => {
+    const joined = await veer.from('invite_rsvps').upsert(
+      {
+        invite_id: inviteId,
+        profile_id: veerId,
+        bike_category: 'adv',
+        has_gear: false,
+        experience: 'beginner',
+      },
+      { onConflict: 'invite_id,profile_id' }
+    );
+    assert.equal(joined.error, null, 'RSVP with answers accepted');
+
+    const board = await veer.rpc('invite_list', { p_crew_id: null });
+    const row = board.data.find((x) => x.id === inviteId);
+    assert.ok(row, 'invite on the board');
+    assert.equal(row.i_am_in, true);
+    assert.equal(row.my_has_gear, false, 'an honest no is recorded, not rejected');
+    assert.equal(row.my_experience, 'beginner');
+
+    // Changing your mind edits in place rather than leaving and rejoining.
+    await veer
+      .from('invite_rsvps')
+      .update({ has_gear: true })
+      .eq('invite_id', inviteId)
+      .eq('profile_id', veerId);
+    const after = await veer.rpc('invite_list', { p_crew_id: null });
+    assert.equal(after.data.find((x) => x.id === inviteId).my_has_gear, true);
+
+    // ...but only your own.
+    const forged = await asha
+      .from('invite_rsvps')
+      .update({ has_gear: false })
+      .eq('invite_id', inviteId)
+      .eq('profile_id', veerId)
+      .select();
+    assert.equal(forged.data.length, 0, 'nobody edits another rider’s answers');
+  });
+});
+
+describe('crew leaderboards', () => {
+  let crewId;
+  after(async () => {
+    if (crewId) await asha.from('crews').delete().eq('id', crewId);
+  });
+
+  it('a crew appears only once it opts in, and totals are aggregates', async () => {
+    const { data: crew } = await asha
+      .from('crews')
+      .insert({ name: 'test: board crew', created_by: ashaId })
+      .select('id')
+      .single();
+    crewId = crew.id;
+
+    const off = await asha.rpc('crew_leaderboard');
+    assert.ok(!off.data.some((c) => c.id === crewId), 'opt-in is off by default');
+
+    await asha.from('crews').update({ on_leaderboard: true }).eq('id', crewId);
+    const on = await asha.rpc('crew_leaderboard');
+    const row = on.data.find((c) => c.id === crewId);
+    assert.ok(row, 'opted-in crew is on the board');
+    assert.equal(Number(row.member_count), 1, 'creator counts as an active member');
+    assert.ok(row.lifetime_km !== null && row.today_km !== null, 'both distance totals present');
+    assert.equal(row.i_am_in, true);
+  });
+
+  it('only an admin can flip the switch', async () => {
+    const forged = await veer
+      .from('crews')
+      .update({ on_leaderboard: false })
+      .eq('id', crewId)
+      .select();
+    assert.equal(forged.data.length, 0, 'a non-admin cannot take a crew off the board');
+  });
+});
+
+describe('profile stats', () => {
+  it('own numbers resolve; a private rider’s do not leak', async () => {
+    const mine = await asha.rpc('profile_stats', { p_profile_id: ashaId });
+    assert.equal(mine.data.length, 1, 'own stats come back');
+    const row = mine.data[0];
+    for (const k of [
+      'total_km',
+      'ride_count',
+      'bike_count',
+      'crew_count',
+      'follower_count',
+      'following_count',
+    ]) {
+      assert.ok(row[k] !== undefined && row[k] !== null, `${k} present`);
+    }
+
+    const peeking = await asha.rpc('profile_stats', { p_profile_id: veerId });
+    assert.equal(peeking.data.length, 0, 'private rider’s stats withheld');
   });
 });
 

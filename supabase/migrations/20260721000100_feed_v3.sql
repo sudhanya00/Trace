@@ -13,6 +13,21 @@ drop function if exists explore_feed(text, timestamptz);
 alter table posts drop column tag;
 
 -- ---------------------------------------------------------------------------
+-- 1b. Bug, found while testing item 6: private crews could never let anyone in.
+--
+--     20260717000100 added the members_approve UPDATE policy, but crew_members
+--     was only ever granted select/insert/delete (20260716000700) — so the
+--     policy was dead on arrival and every approval failed with 42501. The
+--     client swallowed it (.catch(() => {})), so it looked like nothing
+--     happened. Requests went in, nobody came out.
+--
+--     Column-scoped on purpose: approving sets state and nothing else. A
+--     table-wide grant would let an admin rewrite role or profile_id, which
+--     the policy's with-check does not constrain.
+-- ---------------------------------------------------------------------------
+grant update (state) on crew_members to authenticated;
+
+-- ---------------------------------------------------------------------------
 -- 2. Planned rides carry their shape. Every field is nullable on purpose:
 --    null means the creator didn't ask, and what the creator didn't ask, the
 --    joiner is never asked either.
