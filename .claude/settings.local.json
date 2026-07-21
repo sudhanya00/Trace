@@ -9,7 +9,8 @@
       "Bash(xargs wc -l)",
       "Bash(npx tsc *)",
       "Bash(npx supabase *)",
-      "Bash(timeout 300 npx supabase start)"
+      "Bash(timeout 300 npx supabase start)",
+      "Bash(tasklist)"
     ]
   }
 }
