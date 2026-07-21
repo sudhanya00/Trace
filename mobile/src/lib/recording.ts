@@ -141,35 +141,50 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
         );
         ldb.runSync(
           `INSERT OR REPLACE INTO local_ride_state
-             (ride_id, last_seq, segment_seq, last_lat, last_lng, last_ts, last_altitude, last_accuracy, distance_m, gap_count, gap_duration_s, last_move_ts, pause_prompted, stops_count, stopped_s, elev_gain_m)
-           VALUES (?, 0, 0, ?, ?, ?, ?, ?, 0, 0, 0, ?, 0, 0, 0, 0)`,
-          [ride.id, lat, lng, ts, altitude ?? null, accuracy ?? null, ts]
+             (ride_id, last_seq, segment_seq, last_lat, last_lng, last_ts, last_altitude, last_accuracy, distance_m, gap_count, gap_duration_s, last_move_ts, pause_prompted, stops_count, stopped_s, elev_gain_m, anchor_ts, last_recv_ts)
+           VALUES (?, 0, 0, ?, ?, ?, ?, ?, 0, 0, 0, ?, 0, 0, 0, 0, ?, ?)`,
+          [ride.id, lat, lng, ts, altitude ?? null, accuracy ?? null, ts, ts, ts]
         );
         s = rideState(ride.id)!;
         continue;
       }
 
-      if (ts <= s.last_ts) continue; // out-of-order duplicate
+      if (ts <= s.last_recv_ts) continue; // out-of-order duplicate
 
       const d = metersBetween(s.last_lat, s.last_lng, lat, lng);
-      const dt = ts - s.last_ts;
-      const cls = classifyFix({ accuracy: accuracy ?? null, distanceM: d, dtMs: dt });
+      const cls = classifyFix({
+        accuracy: accuracy ?? null,
+        distanceM: d,
+        // Distance accrued since the anchor, so it is measured over the span
+        // that actually produced it.
+        spanMs: ts - s.anchor_ts,
+        // Silence means nothing arrived — not that we discarded what did.
+        silenceMs: ts - s.last_recv_ts,
+      });
 
-      if (cls.kind === 'drop') continue; // GPS noise (§5)
+      // A fix that arrived and was thrown away still proves the GPS is alive.
+      // Recording that is what stops the accuracy filter inventing dropouts.
+      if (cls.kind === 'drop') {
+        ldb.runSync('UPDATE local_ride_state SET last_recv_ts = ? WHERE ride_id = ?', [ts, ride.id]);
+        s = { ...s, last_recv_ts: ts };
+        continue;
+      }
 
       // Always keep freshness current, even for fixes we don't write —
       // auto-pause detection and GPS status read these.
       if (cls.kind === 'skip') {
         ldb.runSync(
-          'UPDATE local_ride_state SET last_ts = ?, last_altitude = ?, last_accuracy = ? WHERE ride_id = ?',
-          [ts, altitude ?? s.last_altitude, accuracy ?? null, ride.id]
+          'UPDATE local_ride_state SET last_ts = ?, last_recv_ts = ?, last_altitude = ?, last_accuracy = ? WHERE ride_id = ?',
+          [ts, ts, altitude ?? s.last_altitude, accuracy ?? null, ride.id]
         );
-        s = { ...s, last_ts: ts, last_altitude: altitude ?? s.last_altitude };
+        s = { ...s, last_ts: ts, last_recv_ts: ts, last_altitude: altitude ?? s.last_altitude };
         continue;
       }
 
       // §5: never interpolate across a dropout. A dropout ends a segment.
       const isGap = cls.gap;
+      // The unaccounted span, for the honest "not counted" line after the ride.
+      const dt = ts - s.anchor_ts;
 
       const seq = s.last_seq + 1;
       const segment = isGap ? s.segment_seq + 1 : s.segment_seq;
@@ -192,6 +207,7 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
       ldb.runSync(
         `UPDATE local_ride_state SET
            last_seq = ?, segment_seq = ?, last_lat = ?, last_lng = ?, last_ts = ?,
+           anchor_ts = ?, last_recv_ts = ?,
            last_altitude = ?, last_accuracy = ?, distance_m = distance_m + ?,
            gap_count = gap_count + ?, gap_duration_s = gap_duration_s + ?,
            last_move_ts = ?, pause_prompted = 0,
@@ -200,6 +216,7 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
          WHERE ride_id = ?`,
         [
           seq, segment, lat, lng, ts,
+          ts, ts,
           altitude ?? null, accuracy ?? null, addedM,
           isGap ? 1 : 0, isGap ? Math.round(dt / 1000) : 0,
           ts,
@@ -215,6 +232,8 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
         last_lat: lat,
         last_lng: lng,
         last_ts: ts,
+        anchor_ts: ts,
+        last_recv_ts: ts,
         last_altitude: altitude ?? s.last_altitude,
         distance_m: s.distance_m + addedM,
         gap_count: s.gap_count + (isGap ? 1 : 0),

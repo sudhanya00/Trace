@@ -53,7 +53,13 @@ ldb.execSync(`
     pause_prompted INTEGER NOT NULL DEFAULT 0,
     stops_count INTEGER NOT NULL DEFAULT 0,
     stopped_s INTEGER NOT NULL DEFAULT 0,
-    elev_gain_m REAL NOT NULL DEFAULT 0
+    elev_gain_m REAL NOT NULL DEFAULT 0,
+    -- Timestamp of the last WRITTEN point. Pairs with last_lat/last_lng, so
+    -- distance and the time it took are always measured over the same span.
+    anchor_ts INTEGER NOT NULL DEFAULT 0,
+    -- Last fix RECEIVED, however poor. A dropped fix still proves the GPS was
+    -- alive; only true silence here means the path is unknown (§5).
+    last_recv_ts INTEGER NOT NULL DEFAULT 0
   );
 `);
 
@@ -71,6 +77,15 @@ ldb.execSync(`
       ALTER TABLE local_ride_state ADD COLUMN stops_count INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE local_ride_state ADD COLUMN stopped_s INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE local_ride_state ADD COLUMN elev_gain_m REAL NOT NULL DEFAULT 0;
+    `);
+  }
+  if (!cols.some((c) => c.name === 'anchor_ts')) {
+    // The false-gap fix (2026-07-21). Seeded from last_ts so a ride recorded
+    // by the previous build and still in the buffer keeps classifying sanely.
+    ldb.execSync(`
+      ALTER TABLE local_ride_state ADD COLUMN anchor_ts INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE local_ride_state ADD COLUMN last_recv_ts INTEGER NOT NULL DEFAULT 0;
+      UPDATE local_ride_state SET anchor_ts = last_ts, last_recv_ts = last_ts;
     `);
   }
   const rideCols = ldb.getAllSync<{ name: string }>('PRAGMA table_info(local_rides)');
@@ -116,6 +131,8 @@ export type RideState = {
   last_lat: number;
   last_lng: number;
   last_ts: number;
+  anchor_ts: number;
+  last_recv_ts: number;
   last_altitude: number | null;
   last_accuracy: number | null;
   distance_m: number;
