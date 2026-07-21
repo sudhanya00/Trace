@@ -22,14 +22,19 @@ $env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:Path"
 # configuration with "The filename, directory name, or volume label syntax is
 # incorrect" — which points nowhere near the real cause. Forward slashes work
 # fine on Windows and sidestep it entirely.
+#
+# Written as an array rather than a here-string on purpose: PowerShell 5.1
+# only accepts a here-string terminator at the very start of a line, and a
+# file with mixed CRLF/LF endings makes it miss the terminator and swallow the
+# rest of the script. An array has no such trap.
 $localProps = "$PSScriptRoot\android\local.properties"
 if (Test-Path "$PSScriptRoot\android") {
-  @"
-sdk.dir=C:/venv/tools/android-sdk
-cmake.dir=C:/venv/tools/android-sdk/cmake/3.30.5
-"@ | Out-File -FilePath $localProps -Encoding ascii
+  @(
+    'sdk.dir=C:/venv/tools/android-sdk',
+    'cmake.dir=C:/venv/tools/android-sdk/cmake/3.30.5'
+  ) | Set-Content -Path $localProps -Encoding ascii
 } else {
-  Write-Host "No android/ directory — run: npx expo prebuild -p android --no-install" -ForegroundColor Yellow
+  Write-Host "No android/ directory - run: npx expo prebuild -p android --no-install" -ForegroundColor Yellow
   exit 1
 }
 
