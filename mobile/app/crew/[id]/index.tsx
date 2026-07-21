@@ -12,10 +12,12 @@ import {
   View,
 } from 'react-native';
 
-import { InviteCard } from '../../src/components/InviteCard';
-import { PushButton } from '../../src/components/PushButton';
-import { MonoLabel } from '../../src/components/ui';
-import { useAuth } from '../../src/lib/auth';
+import { Feather } from '@expo/vector-icons';
+
+import { InviteCard } from '../../../src/components/InviteCard';
+import { PushButton } from '../../../src/components/PushButton';
+import { MonoLabel } from '../../../src/components/ui';
+import { useAuth } from '../../../src/lib/auth';
 import {
   approveCrewMember,
   Crew,
@@ -32,9 +34,10 @@ import {
   rsvpInvite,
   sendCrewMessage,
   setCrewLeaderboard,
-} from '../../src/lib/db';
-import { supabase } from '../../src/lib/supabase';
-import { color, font, layout } from '../../src/theme/tokens';
+} from '../../../src/lib/db';
+import { supabase } from '../../../src/lib/supabase';
+import { useKeyboardHeight } from '../../../src/lib/useKeyboardHeight';
+import { color, font, layout } from '../../../src/theme/tokens';
 
 /**
  * The crew room: live chat over Supabase Realtime. The WAL stream respects
@@ -45,6 +48,7 @@ export default function CrewRoom() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { session } = useAuth();
   const [crew, setCrew] = useState<Crew | null>(null);
+  const kbHeight = useKeyboardHeight();
   const [roster, setRoster] = useState<Map<string, CrewMember>>(new Map());
   const [messages, setMessages] = useState<CrewMessage[]>([]);
   const [member, setMember] = useState(false);
@@ -177,7 +181,13 @@ export default function CrewRoom() {
             <MonoLabel size={9}>
               {[crew.region, `${roster.size} rider${roster.size === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
             </MonoLabel>
-            <Text style={st.h1}>{crew.name}</Text>
+            {/* WhatsApp's move: the title is the way into the crew itself. */}
+            <Pressable onPress={() => router.push(`/crew/${id}/about`)} hitSlop={6}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                <Text style={st.h1}>{crew.name}</Text>
+                <Feather name="chevron-right" size={17} color={color.steel} />
+              </View>
+            </Pressable>
           </View>
           <Pressable onPress={() => router.back()} style={{ padding: 8 }}>
             <Text style={st.backText}>Back</Text>
@@ -294,7 +304,9 @@ export default function CrewRoom() {
               );
             }}
           />
-          <View style={st.inputRow}>
+          {/* Lifted by the measured keyboard height: edge-to-edge means the
+              window never resizes, so nothing moves this on its own. */}
+          <View style={[st.inputRow, { marginBottom: kbHeight }]}>
             <TextInput
               value={draft}
               onChangeText={setDraft}
@@ -307,9 +319,11 @@ export default function CrewRoom() {
               <Text style={st.sendText}>SEND</Text>
             </Pressable>
           </View>
-          <Pressable onPress={onLeave} style={st.leaveRow}>
-            <Text style={st.leaveText}>Leave crew</Text>
-          </Pressable>
+          {kbHeight === 0 && (
+            <Pressable onPress={onLeave} style={st.leaveRow}>
+              <Text style={st.leaveText}>Leave crew</Text>
+            </Pressable>
+          )}
         </>
       ) : pendingMe ? (
         <View style={st.joinWrap}>

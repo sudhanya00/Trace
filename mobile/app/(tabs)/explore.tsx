@@ -3,10 +3,10 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Avatar } from '../../src/components/Avatar';
 import { CreateSheet } from '../../src/components/CreateSheet';
 import { InviteCard } from '../../src/components/InviteCard';
 import { Loading } from '../../src/components/Loading';
+import { PostCard } from '../../src/components/PostCard';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
@@ -111,31 +111,7 @@ export default function Explore() {
                 />
               </View>
             ) : (
-              <Pressable onPress={() => router.push(`/post/${item.id}`)}>
-                {({ pressed }) => (
-                  <View style={[st.post, pressed && { backgroundColor: color.slate }]}>
-                    <View style={{ flexDirection: 'row', gap: 11 }}>
-                      <Pressable onPress={() => router.push(`/rider/${item.profile_id}`)} hitSlop={6}>
-                        <Avatar url={item.avatar_url} handle={item.handle} size={36} />
-                      </Pressable>
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={st.postAuthor}>@{item.handle}</Text>
-                          <Text style={st.postWhen}>{ago(item.created_at)}</Text>
-                        </View>
-                        <Text style={st.postBody} numberOfLines={6}>
-                          {item.body}
-                        </Text>
-                        {item.comment_count > 0 && (
-                          <Text style={st.postComments} allowFontScaling={false}>
-                            {item.comment_count} repl{item.comment_count === 1 ? 'y' : 'ies'}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-                  </View>
-                )}
-              </Pressable>
+              <PostCard post={item} rideGeom={item.ride_geom} onChanged={load} />
             )
           }
         />

@@ -12,7 +12,10 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 
+import { Feather } from '@expo/vector-icons';
+
 import { Avatar } from '../../src/components/Avatar';
+import { PostActions } from '../../src/components/PostActions';
 import { Field, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
@@ -61,6 +64,8 @@ export default function PostDetail() {
     }
   };
 
+  // Long-press still works, but it was the ONLY way to reach this — an
+  // invisible affordance is not a feature. There's a visible ⋯ now too.
   const onLongPressPost = () => {
     if (!session || !post) return;
     if (post.profile_id === session.user.id) {
@@ -111,13 +116,22 @@ export default function PostDetail() {
             <Pressable onPress={() => router.push(`/rider/${post.profile_id}`)} hitSlop={6}>
               <Avatar url={post.avatar_url} handle={post.handle} size={36} />
             </Pressable>
-            <Pressable onPress={() => router.push(`/rider/${post.profile_id}`)} hitSlop={6}>
+            <Pressable
+              onPress={() => router.push(`/rider/${post.profile_id}`)}
+              hitSlop={6}
+              style={{ flex: 1 }}
+            >
               <Text style={st.author}>@{post.handle}</Text>
             </Pressable>
             <Text style={st.when}>{ago(post.created_at)}</Text>
+            <Pressable onPress={onLongPressPost} hitSlop={10} style={{ padding: 4 }}>
+              <Feather name="more-horizontal" size={18} color={color.steel} />
+            </Pressable>
           </View>
-          <Text style={st.body}>{post.body}</Text>
+          {post.body?.trim() ? <Text style={st.body}>{post.body}</Text> : null}
         </Pressable>
+
+        <PostActions post={post} onChanged={load} />
 
         <MonoLabel size={9} style={{ marginTop: 26, marginBottom: 4 }}>
           Replies · {thread.length}

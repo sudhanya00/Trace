@@ -20,8 +20,10 @@ import {
   Route,
   routeForRide,
   setRideCrew,
+  shareRideAsPost,
   submitRecordingReport,
   updateRide,
+  deleteRide,
 } from '../../src/lib/db';
 import { listLocalRides, LocalRide, pointsForRide, rideState } from '../../src/lib/localdb';
 import { color, font, layout } from '../../src/theme/tokens';
@@ -51,6 +53,7 @@ export default function RideDetail() {
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [crewId, setCrewId] = useState<string | null>(null);
+  const [shared, setShared] = useState(false);
   const [busy, setBusy] = useState(false);
   const cardRef = useRef<View>(null);
 
@@ -255,6 +258,28 @@ export default function RideDetail() {
             </View>
 
             <PushButton label="Save" variant="slate" onPress={save} disabled={busy} style={{ marginTop: 22 }} />
+            {/* Onto the feed as a post. Visibility follows the profile —
+                followers if private, everyone if public — so there is no
+                second privacy switch to get wrong. */}
+            <PushButton
+              label={shared ? 'Shared to feed' : 'Share as post'}
+              variant="slate"
+              disabled={shared || busy}
+              onPress={async () => {
+                if (!session) return;
+                setBusy(true);
+                try {
+                  await shareRideAsPost(session.user.id, detail.ride.id);
+                  setShared(true);
+                } catch (e) {
+                  Alert.alert('Could not share', (e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              style={{ marginTop: 14 }}
+            />
+
             {route ? (
               <PushButton
                 label="View route"
@@ -300,6 +325,36 @@ export default function RideDetail() {
         {!isManual && (
           <Pressable onPress={report} style={st.reportRow}>
             <Text style={st.reportText}>Something wrong with this track? Report bad recording →</Text>
+          </Pressable>
+        )}
+
+        {/* Destructive, so it sits apart from the actions and says what goes. */}
+        {isServer && (
+          <Pressable
+            onPress={() =>
+              Alert.alert(
+                'Delete this ride?',
+                'The track, its distance and any crew contribution go with it. This cannot be undone.',
+                [
+                  { text: 'Keep it', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        await deleteRide(detail.ride.id);
+                        router.back();
+                      } catch (e) {
+                        Alert.alert('Could not delete', (e as Error).message);
+                      }
+                    },
+                  },
+                ]
+              )
+            }
+            style={st.deleteRow}
+          >
+            <Text style={st.deleteText}>Delete this ride</Text>
           </Pressable>
         )}
 
@@ -362,6 +417,8 @@ const st = StyleSheet.create({
   pendingNote: { fontFamily: font.body, fontSize: 12, color: color.steel, lineHeight: 17, marginTop: 22 },
   reportRow: { marginTop: 30, paddingVertical: 6 },
   reportText: { fontFamily: font.bodyMedium, fontSize: 12, color: color.steel },
+  deleteRow: { alignSelf: 'center', marginTop: 26, padding: 10 },
+  deleteText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.amber },
   back: { alignSelf: 'center', marginTop: 18, padding: 8 },
   backText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
 });

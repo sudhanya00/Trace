@@ -6,7 +6,7 @@ import * as TaskManager from 'expo-task-manager';
 
 import { clearLivePosition, upsertLivePosition } from './db';
 import { metersBetween } from './geo';
-import { ldb, LocalRide, recordingRide, rideState } from './localdb';
+import { deleteLocalRide, ldb, LocalRide, recordingRide, rideState } from './localdb';
 import { supabase } from './supabase';
 
 /** AsyncStorage key for the live-share opt-in. OFF unless the rider says so. */
@@ -287,6 +287,22 @@ export async function finishRide(ride: LocalRide): Promise<void> {
     [endedAt, ride.id]
   );
   // The ride is over: the live position leaves the map immediately.
+  supabase.auth.getSession().then(({ data }) => {
+    const uid = data.session?.user.id;
+    if (uid) clearLivePosition(uid).catch(() => {});
+  });
+}
+
+/**
+ * Throw the ride away. The one place in the app that deliberately loses
+ * track data, so it is deliberately hard to reach: hold, then confirm.
+ * Nothing has synced yet at this point, so nothing has to be un-sent.
+ */
+export async function cancelRide(ride: LocalRide): Promise<void> {
+  if (await isRecordingTaskRunning()) {
+    await Location.stopLocationUpdatesAsync(RECORDING_TASK);
+  }
+  deleteLocalRide(ride.id);
   supabase.auth.getSession().then(({ data }) => {
     const uid = data.session?.user.id;
     if (uid) clearLivePosition(uid).catch(() => {});

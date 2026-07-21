@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 
 import { Odometer } from '../../src/components/Odometer';
+import { HoldToConfirm } from '../../src/components/HoldToConfirm';
 import { PushButton } from '../../src/components/PushButton';
 import { TrackBed } from '../../src/components/TrackBed';
 import { MonoLabel } from '../../src/components/ui';
@@ -33,6 +34,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AUTO_PAUSE_MS,
+  cancelRide,
   finalizeInterrupted,
   finishRide,
   isRecordingTaskRunning,
@@ -166,6 +168,28 @@ export default function Record() {
   };
 
   const posthog = usePostHog();
+
+  /** The hold has completed; now say plainly what is about to be lost. */
+  const onCancelHeld = () => {
+    if (phase.kind !== 'recording') return;
+    const s = rideState(phase.ride.id);
+    const km = s ? (s.distance_m / 1000).toFixed(1) : '0.0';
+    Alert.alert(
+      'Cancel this ride?',
+      `${km} km recorded so far will be deleted and cannot be recovered. To keep it instead, finish the ride.`,
+      [
+        { text: 'Keep recording', style: 'cancel' },
+        {
+          text: 'Delete the ride',
+          style: 'destructive',
+          onPress: async () => {
+            await cancelRide(phase.ride).catch(() => {});
+            refresh();
+          },
+        },
+      ]
+    );
+  };
 
   const onFinish = async () => {
     if (phase.kind !== 'recording') return;
@@ -371,7 +395,18 @@ export default function Record() {
       {/* control — oversized on purpose: gloves (§8) */}
       <View style={st.ctrl}>
         {phase.kind === 'recording' ? (
-          <PushButton label="Finish ride" onPress={onFinish} height={layout.recordButtonHeight} />
+          <>
+            <PushButton label="Finish ride" onPress={onFinish} height={layout.recordButtonHeight} />
+            {/* Finish keeps the ride; this throws it away. Held, then
+                confirmed — never one tap away from losing a track. */}
+            <View style={{ marginTop: 12 }}>
+              <HoldToConfirm
+                label="Hold to cancel ride"
+                holdingLabel="Keep holding to cancel…"
+                onConfirm={onCancelHeld}
+              />
+            </View>
+          </>
         ) : phase.kind === 'idle' ? (
           <PushButton
             label={bike ? 'Start ride' : 'Add a bike first'}

@@ -11,7 +11,10 @@ import {
   View,
 } from 'react-native';
 
+import { Feather } from '@expo/vector-icons';
+
 import { PushButton } from '../../src/components/PushButton';
+import { Sheet } from '../../src/components/Sheet';
 import { ChipSelect, Field, MonoLabel, YesNo } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
@@ -54,6 +57,7 @@ export default function NewInvite() {
   const [gear, setGear] = useState<boolean | null>(null);
   const [exp, setExp] = useState<Experience | 'any' | null>(null);
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => {
     if (!session) return;
@@ -118,14 +122,17 @@ export default function NewInvite() {
           style={{ marginTop: 16 }}
         />
 
-        <ChipSelect
-          label="Posts to"
-          options={['board', ...myCrews.map((c) => c.id)]}
-          value={scope ?? 'board'}
-          onChange={(v) => setScope(v === 'board' ? null : v)}
-          labelOf={(v) => (v === 'board' ? 'Public board' : myCrews.find((c) => c.id === v)?.name ?? '')}
-          style={{ marginTop: 20 }}
-        />
+        {/* A chip row grows with the crew count and eats the screen at 50 of
+            them. One row, one sheet, scrolls forever. */}
+        <MonoLabel size={8.5} style={{ marginTop: 20, marginBottom: 8 }}>
+          Posts to
+        </MonoLabel>
+        <Pressable onPress={() => setPicking(true)} style={st.picker}>
+          <Text style={st.pickerValue} numberOfLines={1}>
+            {scope === null ? 'Public board' : myCrews.find((c) => c.id === scope)?.name ?? 'Crew'}
+          </Text>
+          <Feather name="chevron-down" size={16} color={color.steel} />
+        </Pressable>
         {scope === null && (
           <Field
             label="Region"
@@ -177,7 +184,60 @@ export default function NewInvite() {
           <Text style={st.cancelText}>Cancel</Text>
         </Pressable>
       </ScrollView>
+
+      <Sheet visible={picking} onClose={() => setPicking(false)} label="Posts to" title="Where does it go?">
+        <PickRow
+          label="Public board"
+          sub="Any signed-in rider can see it and join"
+          on={scope === null}
+          onPress={() => {
+            setScope(null);
+            setPicking(false);
+          }}
+        />
+        {myCrews.map((c) => (
+          <PickRow
+            key={c.id}
+            label={c.name}
+            sub={[c.region, `${c.member_count ?? 0} riders`].filter(Boolean).join(' · ')}
+            on={scope === c.id}
+            onPress={() => {
+              setScope(c.id);
+              setPicking(false);
+            }}
+          />
+        ))}
+        {myCrews.length === 0 && (
+          <Text style={st.note}>You&apos;re not in any crews yet — the board it is.</Text>
+        )}
+      </Sheet>
     </KeyboardAvoidingView>
+  );
+}
+
+function PickRow({
+  label,
+  sub,
+  on,
+  onPress,
+}: {
+  label: string;
+  sub: string;
+  on: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress}>
+      {({ pressed }) => (
+        <View style={[st.pickRow, pressed && { backgroundColor: color.slate2 }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[st.pickLabel, on && { color: color.signal }]}>{label}</Text>
+            {sub ? <Text style={st.pickSub}>{sub}</Text> : null}
+          </View>
+          {on && <Feather name="check" size={17} color={color.signal} />}
+        </View>
+      )}
+    </Pressable>
   );
 }
 
@@ -193,6 +253,29 @@ const st = StyleSheet.create({
   },
   divider: { height: 1, backgroundColor: color.hair, marginTop: 30, marginBottom: 22 },
   note: { fontFamily: font.body, fontSize: 12, color: color.dim, lineHeight: 18, marginTop: 8 },
+  picker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: color.slate2,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  pickerValue: { flex: 1, fontFamily: font.body, fontSize: 15, color: color.white },
+  pickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: color.hair,
+  },
+  pickLabel: { fontFamily: font.bodySemi, fontSize: 15, color: color.white },
+  pickSub: { fontFamily: font.body, fontSize: 11.5, color: color.steel, marginTop: 3 },
   cancel: { alignSelf: 'center', marginTop: 16, padding: 8 },
   cancelText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
 });

@@ -862,6 +862,118 @@ describe('crew contributions', () => {
   });
 });
 
+describe('likes, reposts and rides on the feed', () => {
+  let postId;
+  let rideId;
+
+  after(async () => {
+    await asha.from('posts').delete().like('body', 'test:%');
+    await asha.from('rides').delete().like('title', 'test:%');
+  });
+
+  it('a like is one row, and liking twice stays one', async () => {
+    const { data: p } = await asha
+      .from('posts')
+      .insert({ profile_id: ashaId, body: 'test: likeable' })
+      .select('id')
+      .single();
+    postId = p.id;
+
+    await veer.from('post_likes').insert({ post_id: postId, profile_id: veerId });
+    const again = await veer.from('post_likes').insert({ post_id: postId, profile_id: veerId });
+    assert.equal(again.error?.code, '23505', 'the primary key makes it idempotent');
+
+    const feed = await veer.rpc('explore_feed', {});
+    const row = feed.data.find((x) => x.id === postId);
+    assert.equal(Number(row.like_count), 1);
+    assert.equal(row.i_liked, true, 'the caller sees their own like');
+
+    const ashaView = await asha.rpc('explore_feed', {});
+    assert.equal(ashaView.data.find((x) => x.id === postId).i_liked, false, 'not everyone else’s');
+  });
+
+  it('you cannot like as somebody else, or unlike their like', async () => {
+    const forged = await asha
+      .from('post_likes')
+      .insert({ post_id: postId, profile_id: veerId });
+    assert.ok(forged.error, 'liking on another rider’s behalf is refused');
+
+    const stolen = await asha
+      .from('post_likes')
+      .delete()
+      .eq('post_id', postId)
+      .eq('profile_id', veerId)
+      .select();
+    assert.equal(stolen.data.length, 0, 'and their like is not yours to remove');
+  });
+
+  it('a repost carries the original, and an empty body is legal for one', async () => {
+    const { error } = await veer
+      .from('posts')
+      .insert({ profile_id: veerId, body: '', repost_of: postId });
+    assert.equal(error, null, 'a bare repost needs no words');
+
+    const mine = await veer.rpc('posts_of', { p_profile_id: veerId });
+    const rp = mine.data.find((x) => x.repost_of === postId);
+    assert.ok(rp, 'the repost is on the reposter’s profile');
+    assert.equal(rp.repost_handle, 'asha', 'and names who it came from');
+    assert.ok(rp.repost_body.includes('likeable'));
+  });
+
+  it('an empty body is still refused for a plain post', async () => {
+    const { error } = await asha.from('posts').insert({ profile_id: ashaId, body: '' });
+    assert.ok(error, 'a post with nothing in it and nothing attached is not a post');
+  });
+
+  it('a ride can be shared as a post — but only your own ride', async () => {
+    rideId = crypto.randomUUID();
+    await asha.from('rides').insert({
+      id: rideId,
+      profile_id: ashaId,
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      title: 'test: shareable ride',
+    });
+    await asha.from('ride_tracks').upsert(
+      { ride_id: rideId, profile_id: ashaId, geom: 'MULTILINESTRING((77.0 31.00, 77.0 31.02))' },
+      { onConflict: 'ride_id' }
+    );
+
+    const ok = await asha.from('posts').insert({ profile_id: ashaId, body: '', ride_id: rideId });
+    assert.equal(ok.error, null, 'your own ride goes on the feed');
+
+    const theft = await veer.from('posts').insert({ profile_id: veerId, body: '', ride_id: rideId });
+    assert.ok(theft.error, 'somebody else’s ride does not');
+
+    const feed = await veer.rpc('explore_feed', {});
+    const row = feed.data.find((x) => x.ride_id === rideId);
+    assert.ok(row, 'the ride post reached the feed');
+    assert.ok(Number(row.ride_distance_km) > 2, 'carrying its distance');
+    assert.ok(row.ride_geom, 'and its shape, for the thumbnail');
+  });
+});
+
+describe('crew member contributions', () => {
+  it('lists active members ordered by what they gave', async () => {
+    const { data: crew } = await asha
+      .from('crews')
+      .insert({ name: 'test: contrib order crew', created_by: ashaId })
+      .select('id')
+      .single();
+
+    const rows = await asha.rpc('crew_member_contributions', { p_crew_id: crew.id });
+    assert.equal(rows.error, null);
+    assert.equal(rows.data.length, 1, 'the creator is in it');
+    assert.equal(rows.data[0].handle, 'asha');
+    assert.equal(Number(rows.data[0].total_km), 0, 'having contributed nothing yet');
+
+    const outsider = await veer.rpc('crew_member_contributions', { p_crew_id: crew.id });
+    assert.equal(outsider.data.length, 0, 'non-members see no roster');
+
+    await asha.from('crews').delete().eq('id', crew.id);
+  });
+});
+
 describe('profile stats', () => {
   it('own numbers resolve; a private rider’s do not leak', async () => {
     const mine = await asha.rpc('profile_stats', { p_profile_id: ashaId });

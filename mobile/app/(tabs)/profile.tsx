@@ -229,7 +229,8 @@ const st = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: color.hair,
   },
-  tabBtn: { paddingVertical: 10, marginRight: 22, alignItems: 'center' },
+  // Four equal columns across the full width, rather than bunched left.
+  tabBtn: { flex: 1, paddingVertical: 10, alignItems: 'center' },
   tabText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.6, color: color.dim },
   tabTextOn: { color: color.white },
   tabUnderline: {

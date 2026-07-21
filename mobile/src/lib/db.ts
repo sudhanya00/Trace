@@ -842,7 +842,16 @@ export type Post = {
   avatar_url: string | null;
   body: string;
   comment_count: number;
+  like_count: number;
+  i_liked: boolean;
   created_at: string;
+  /** Set when this post repeats another one. */
+  repost_of: string | null;
+  repost_handle: string | null;
+  repost_body: string | null;
+  /** Set when this post is a ride the rider shared. */
+  ride_id: string | null;
+  ride_distance_km: number | null;
 };
 
 /**
@@ -852,7 +861,10 @@ export type Post = {
  * the feed can render an RSVP without a second call.
  */
 export type FeedItem =
-  | ({ kind: 'post' } & Post)
+  | ({ kind: 'post' } & Post & {
+      ride_started_at: string | null;
+      ride_geom: GeoJson | null;
+    })
   | ({ kind: 'ride' } & Post & {
       title: string;
       meetup: string | null;
@@ -889,9 +901,44 @@ export async function postsOf(profileId: string, before?: string): Promise<Post[
   }));
 }
 
-export async function createPost(userId: string, body: string): Promise<void> {
-  const { error } = await supabase.from('posts').insert({ profile_id: userId, body });
+export async function createPost(
+  userId: string,
+  body: string,
+  extra: { ride_id?: string | null; repost_of?: string | null } = {}
+): Promise<void> {
+  const { error } = await supabase.from('posts').insert({ profile_id: userId, body, ...extra });
   if (error) throw error;
+}
+
+/** Like is an identity, not a counter — insert/delete, never increment. */
+export async function likePost(userId: string, postId: string): Promise<void> {
+  const { error } = await supabase
+    .from('post_likes')
+    .insert({ post_id: postId, profile_id: userId });
+  if (error && error.code !== '23505') throw error; // already liked is fine
+}
+
+export async function unlikePost(userId: string, postId: string): Promise<void> {
+  const { error } = await supabase
+    .from('post_likes')
+    .delete()
+    .eq('post_id', postId)
+    .eq('profile_id', userId);
+  if (error) throw error;
+}
+
+/** Repeat someone's post. An empty body is a plain repost; text quotes it. */
+export async function repost(userId: string, postId: string, body = ''): Promise<void> {
+  return createPost(userId, body, { repost_of: postId });
+}
+
+/** Put a ride on the feed. Visibility follows the profile, like any post. */
+export async function shareRideAsPost(
+  userId: string,
+  rideId: string,
+  body = ''
+): Promise<void> {
+  return createPost(userId, body, { ride_id: rideId });
 }
 
 export async function deletePost(id: string): Promise<void> {
@@ -904,21 +951,61 @@ export async function getPost(id: string): Promise<Post | null> {
   // own fetch + handle. Reuse the thread function's visibility via posts table.
   const { data, error } = await supabase
     .from('posts')
-    .select('id, profile_id, body, created_at')
+    .select('id, profile_id, body, created_at, repost_of, ride_id')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  const { data: author } = await supabase
-    .from('profiles')
-    .select('handle, avatar_url')
-    .eq('id', data.profile_id)
-    .maybeSingle();
+
+  // The counts have to be real here: this row feeds the action row, and a
+  // like button that renders "undefined" is worse than no like button.
+  const [{ data: author }, { data: likes }, { data: mine }, { data: comments }] = await Promise.all([
+    supabase.from('profiles').select('handle, avatar_url').eq('id', data.profile_id).maybeSingle(),
+    supabase.from('post_likes').select('profile_id').eq('post_id', id),
+    supabase.auth.getSession(),
+    supabase.from('post_comments').select('id').eq('post_id', id),
+  ]);
+  const uid = mine.session?.user.id;
+
+  let repost_handle: string | null = null;
+  let repost_body: string | null = null;
+  if (data.repost_of) {
+    const { data: orig } = await supabase
+      .from('posts')
+      .select('body, profile_id')
+      .eq('id', data.repost_of)
+      .maybeSingle();
+    if (orig) {
+      repost_body = orig.body;
+      const { data: op } = await supabase
+        .from('profiles')
+        .select('handle')
+        .eq('id', orig.profile_id)
+        .maybeSingle();
+      repost_handle = op?.handle ?? null;
+    }
+  }
+
+  let ride_distance_km: number | null = null;
+  if (data.ride_id) {
+    const { data: r } = await supabase
+      .from('rides')
+      .select('distance_km')
+      .eq('id', data.ride_id)
+      .maybeSingle();
+    ride_distance_km = r ? Number(r.distance_km) : null;
+  }
+
   return {
     ...data,
     handle: author?.handle ?? 'rider',
     avatar_url: author?.avatar_url ?? null,
-    comment_count: 0,
+    comment_count: comments?.length ?? 0,
+    like_count: likes?.length ?? 0,
+    i_liked: !!uid && (likes ?? []).some((l) => l.profile_id === uid),
+    repost_handle,
+    repost_body,
+    ride_distance_km,
   } as Post;
 }
 
@@ -1050,6 +1137,40 @@ export async function profileStats(profileId: string): Promise<ProfileStats> {
  * Attribute a ride to one of the rider's crews, or to none. Enforced server
  * side too: the rides policy refuses a crew you aren't an active member of.
  */
+/** Members of a crew, ordered by what they have contributed to it. */
+export type CrewContributor = {
+  profile_id: string;
+  handle: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  role: 'admin' | 'member';
+  state: 'active' | 'pending';
+  ride_count: number;
+  total_km: number;
+};
+
+export async function crewMemberContributions(crewId: string): Promise<CrewContributor[]> {
+  const { data, error } = await supabase.rpc('crew_member_contributions', { p_crew_id: crewId });
+  if (error) throw error;
+  return (data ?? []).map((m: Record<string, unknown>) => ({
+    ...(m as unknown as CrewContributor),
+    ride_count: Number(m.ride_count),
+    total_km: Number(m.total_km),
+  }));
+}
+
+/** Owner-scoped by RLS; the geometry and any contribution line go with it. */
+export async function deleteRide(rideId: string): Promise<void> {
+  const { error } = await supabase.from('rides').delete().eq('id', rideId);
+  if (error) throw error;
+}
+
+/** Admin-only by RLS. Takes the roster, the chat and the crew's invites. */
+export async function deleteCrew(crewId: string): Promise<void> {
+  const { error } = await supabase.from('crews').delete().eq('id', crewId);
+  if (error) throw error;
+}
+
 export async function setRideCrew(rideId: string, crewId: string | null): Promise<void> {
   const { error } = await supabase.from('rides').update({ crew_id: crewId }).eq('id', rideId);
   if (error) throw error;
@@ -1081,13 +1202,13 @@ export async function rideThumbs(profileId: string): Promise<Map<string, [number
   return out;
 }
 
-type GeoJson =
+export type GeoJson =
   | { type: 'MultiLineString'; coordinates: [number, number][][] }
   | { type: 'LineString'; coordinates: [number, number][] }
   | { type: string; coordinates?: unknown };
 
 /** ST_Difference can hand back either shape depending on what the clip left. */
-function multiLineCoords(g: GeoJson | null): [number, number][][] {
+export function multiLineCoords(g: GeoJson | null): [number, number][][] {
   if (!g) return [];
   if (g.type === 'MultiLineString') return (g as { coordinates: [number, number][][] }).coordinates;
   if (g.type === 'LineString') return [(g as { coordinates: [number, number][] }).coordinates];

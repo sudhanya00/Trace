@@ -36,6 +36,11 @@ export function PushButton({
       ? { backgroundColor: color.signal }
       : { backgroundColor: color.slate2, borderWidth: 1, borderColor: color.hair };
   const plinth = variant === 'signal' ? color.signalDown : '#0A0C0E';
+  // The label was near-black for both variants, which is right on a yellow
+  // face and invisible on a dark slate one. Slate buttons are secondary
+  // actions, so their text is white rather than signal: twelve yellow buttons
+  // across the app would leave signal meaning nothing (§8).
+  const labelColor = variant === 'signal' ? '#151100' : color.white;
 
   return (
     <Pressable
@@ -63,7 +68,9 @@ export function PushButton({
           { height, transform: [{ translateY: travel }] },
         ]}
       >
-        <Text style={[st.label, { fontSize: Math.max(16, Math.round(height * 0.3)) }]}>
+        <Text
+          style={[st.label, { color: labelColor, fontSize: Math.max(16, Math.round(height * 0.3)) }]}
+        >
           {label}
         </Text>
       </Animated.View>
@@ -80,7 +87,6 @@ const st = StyleSheet.create({
   },
   label: {
     fontFamily: font.display,
-    color: '#151100',
     letterSpacing: 3,
     textTransform: 'uppercase',
   },
