@@ -23,9 +23,15 @@ const ASHA_ROUTE = '00000000-0000-4000-d000-000000000001';
 const ASHA_BIKE = '00000000-0000-4000-b000-000000000001';
 const VEER_BIKE = '00000000-0000-4000-b000-000000000002';
 
+// Local stack's well-known service-role key. Used only to drive maintenance
+// functions that are deliberately revoked from riders (the adhoc sweep).
+const SERVICE =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+
 const anon = createClient(URL, ANON);
 const asha = createClient(URL, ANON);
 const veer = createClient(URL, ANON);
+const admin = createClient(URL, SERVICE);
 let ashaId, veerId;
 
 function flatPoints(geojson) {
@@ -33,6 +39,28 @@ function flatPoints(geojson) {
   if (geojson.type === 'LineString') return geojson.coordinates.length;
   if (geojson.type === 'MultiLineString') return geojson.coordinates.flat().length;
   return 0;
+}
+
+/**
+ * Every planned ride now points at a real Route (route standardization,
+ * 2026-07-24). A ride named but never mapped becomes an `adhoc` route with no
+ * geometry — this is what the Plan-a-ride form does on submit, so the tests
+ * create invites the same way the app does.
+ */
+async function adhocRoute(client, ownerId, name, extra = {}) {
+  const { data, error } = await client
+    .from('routes')
+    .insert({
+      profile_id: ownerId,
+      source: 'adhoc',
+      visibility: extra.crew_id ? 'crew' : 'public',
+      name,
+      ...extra,
+    })
+    .select('id')
+    .single();
+  if (error) throw new Error(`adhoc route insert failed: ${error.message}`);
+  return data.id;
 }
 
 before(async () => {
@@ -402,7 +430,14 @@ describe('ride invites', () => {
     const tomorrow = new Date(Date.now() + 86400e3).toISOString();
     const pub = await asha
       .from('ride_invites')
-      .insert({ created_by: ashaId, title: 'test: dawn board ride', meetup: 'Nishat gate', region: 'Kashmir', starts_at: tomorrow })
+      .insert({
+        created_by: ashaId,
+        route_id: await adhocRoute(asha, ashaId, 'test: dawn board ride'),
+        title: 'test: dawn board ride',
+        meetup: 'Nishat gate',
+        region: 'Kashmir',
+        starts_at: tomorrow,
+      })
       .select('id')
       .single();
     publicInvite = pub.data.id;
@@ -415,7 +450,13 @@ describe('ride invites', () => {
     crewId = crew.id;
     const ci = await asha
       .from('ride_invites')
-      .insert({ created_by: ashaId, crew_id: crewId, title: 'test: crew sunday', starts_at: tomorrow })
+      .insert({
+        created_by: ashaId,
+        crew_id: crewId,
+        route_id: await adhocRoute(asha, ashaId, 'test: crew sunday', { crew_id: crewId }),
+        title: 'test: crew sunday',
+        starts_at: tomorrow,
+      })
       .select('id')
       .single();
     crewInvite = ci.data.id;
@@ -617,12 +658,13 @@ describe('the unified feed and planned-ride detail', () => {
       .insert({
         created_by: ashaId,
         crew_id: null,
+        // Difficulty lives on the Route now, not the invite.
+        route_id: await adhocRoute(asha, ashaId, 'test: dawn run', { difficulty: 'hard' }),
         title: 'test: dawn run',
         starts_at: new Date(Date.now() + 86400e3).toISOString(),
         bike_category: 'adv',
         gear_required: true,
         min_experience: 'intermediate',
-        difficulty: 'hard',
       })
       .select('id')
       .single();
@@ -649,6 +691,7 @@ describe('the unified feed and planned-ride detail', () => {
       .insert({
         created_by: ashaId,
         crew_id: crew.id,
+        route_id: await adhocRoute(asha, ashaId, 'test: crew only run', { crew_id: crew.id }),
         title: 'test: crew only run',
         starts_at: new Date(Date.now() + 86400e3).toISOString(),
       })
@@ -971,6 +1014,119 @@ describe('crew member contributions', () => {
     assert.equal(outsider.data.length, 0, 'non-members see no roster');
 
     await asha.from('crews').delete().eq('id', crew.id);
+  });
+});
+
+describe('route standardization', () => {
+  after(async () => {
+    await asha.from('routes').delete().like('name', 'test:%');
+    await veer.from('routes').delete().like('name', 'test:%');
+  });
+
+  it('a planned ride can never exist without a route', async () => {
+    const orphan = await asha.from('ride_invites').insert({
+      created_by: ashaId,
+      title: 'test: orphan ride',
+      starts_at: new Date(Date.now() + 86400e3).toISOString(),
+    });
+    assert.ok(orphan.error, 'route_id is mandatory — no free-text-only rides');
+  });
+
+  it('difficulty comes from the route, not the invite', async () => {
+    const routeId = await adhocRoute(asha, ashaId, 'test: difficulty source', {
+      difficulty: 'expert',
+    });
+    const { data: inv } = await asha
+      .from('ride_invites')
+      .insert({
+        created_by: ashaId,
+        route_id: routeId,
+        title: 'test: difficulty source',
+        starts_at: new Date(Date.now() + 86400e3).toISOString(),
+      })
+      .select('id')
+      .single();
+
+    const board = await asha.rpc('invite_list', { p_crew_id: null });
+    const row = board.data.find((i) => i.id === inv.id);
+    assert.equal(row.difficulty, 'expert', 'the board reads difficulty off the joined route');
+
+    // And the column is gone from the invite for good.
+    const stale = await asha.from('ride_invites').update({ difficulty: 'easy' }).eq('id', inv.id);
+    assert.ok(stale.error, 'difficulty no longer exists on ride_invites');
+  });
+
+  it('an adhoc route needs no geometry, a user route keeps its own', async () => {
+    const adhocId = await adhocRoute(asha, ashaId, 'test: no geometry');
+    const { data: adhoc } = await asha
+      .from('routes')
+      .select('geom, source')
+      .eq('id', adhocId)
+      .maybeSingle();
+    assert.equal(adhoc.geom, null, 'a named-but-unmapped ride is still a Route row');
+    assert.equal(adhoc.source, 'adhoc');
+  });
+
+  it('a private rider’s route stays hidden from strangers but visible to them', async () => {
+    // veer is private and unfollowed by asha.
+    const { data: mine, error } = await veer
+      .from('routes')
+      .insert({
+        profile_id: veerId,
+        source: 'user',
+        visibility: 'public',
+        name: 'test: veer private-profile route',
+        geom: 'LINESTRING(77.0 31.0, 77.0 31.02)',
+        distance_km: 2.2,
+      })
+      .select('id')
+      .single();
+    assert.equal(error, null);
+
+    const own = await veer.from('routes').select('id').eq('id', mine.id).maybeSingle();
+    assert.ok(own.data, 'the owner always sees their own route');
+
+    // Route-level 'public' does NOT override profile-level privacy.
+    const stranger = await asha.from('routes').select('id').eq('id', mine.id).maybeSingle();
+    assert.equal(stranger.data, null, 'profile privacy still gates a public route');
+    const viaView = await asha.from('routes_public').select('id').eq('id', mine.id).maybeSingle();
+    assert.equal(viaView.data, null, 'and the public view agrees');
+  });
+
+  it('only an admin can create a curated route', async () => {
+    const forged = await asha.from('routes').insert({
+      profile_id: null,
+      source: 'curated',
+      visibility: 'public',
+      name: 'test: forged curation',
+      geom: 'LINESTRING(77.0 31.0, 77.0 31.02)',
+    });
+    assert.ok(forged.error, 'curation is gated on the admin flag');
+  });
+
+  it('the adhoc sweep spares routes with an upcoming ride', async () => {
+    const keep = await adhocRoute(asha, ashaId, 'test: upcoming adhoc');
+    await asha.from('ride_invites').insert({
+      created_by: ashaId,
+      route_id: keep,
+      title: 'test: upcoming adhoc',
+      starts_at: new Date(Date.now() + 86400e3).toISOString(),
+    });
+    const orphan = await adhocRoute(asha, ashaId, 'test: stale adhoc');
+
+    // Definer function, revoked from public — the sweep is a maintenance job,
+    // so drive it through the service role rather than a rider's client.
+    const sweepRun = await admin.rpc('sweep_stale_adhoc_routes');
+    assert.equal(sweepRun.error, null, 'the sweep runs for the service role');
+
+    // ...and a rider can't run it themselves.
+    const forged = await asha.rpc('sweep_stale_adhoc_routes');
+    assert.ok(forged.error, 'riders cannot trigger maintenance');
+
+    const kept = await asha.from('routes').select('id').eq('id', keep).maybeSingle();
+    assert.ok(kept.data, 'a route with a live planned ride survives the sweep');
+    const swept = await asha.from('routes').select('id').eq('id', orphan).maybeSingle();
+    assert.equal(swept.data, null, 'a geometry-less adhoc with no ride is soft-deleted');
   });
 });
 
