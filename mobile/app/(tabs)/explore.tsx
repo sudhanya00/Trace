@@ -18,7 +18,7 @@ import {
   suggestedRiders,
   SuggestedRider,
 } from '../../src/lib/db';
-import { color, font, layout, shadow } from '../../src/theme/tokens';
+import { color, font, layout } from '../../src/theme/tokens';
 
 function ago(iso: string): string {
   const m = Math.floor((Date.now() - +new Date(iso)) / 60000);
@@ -141,7 +141,6 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
-    boxShadow: shadow.signalGlow,
   },
   list: { paddingBottom: 110 },
   suggestWrap: {

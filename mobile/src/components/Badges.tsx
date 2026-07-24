@@ -62,15 +62,18 @@ export function Badges({ profileId }: { profileId: string }) {
 
 const st = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  // Badges are jewellery, not buttons (§2.1): a diamond in the dim trace
+  // colour, condensed uppercase, hairline border — they should look earned,
+  // and they carry no action-yellow.
   badge: {
     fontFamily: font.mono,
     fontSize: 8.5,
     letterSpacing: 1.4,
-    color: color.signal,
+    color: color.traceDim,
     borderWidth: 1,
-    borderColor: 'rgba(255,214,10,.3)',
-    backgroundColor: 'rgba(255,214,10,.12)',
-    borderRadius: 3,
+    borderColor: color.hair,
+    backgroundColor: color.slate,
+    borderRadius: 4,
     paddingHorizontal: 8,
     paddingVertical: 5,
     overflow: 'hidden',

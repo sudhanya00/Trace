@@ -10,7 +10,7 @@ import {
   ViewStyle,
 } from 'react-native';
 
-import { color, font, layout, shadow } from '../theme/tokens';
+import { color, font, layout } from '../theme/tokens';
 
 /** Mono label: always uppercase, letter-spaced, steel (§8 typography). */
 export function MonoLabel({
@@ -40,8 +40,9 @@ export function MonoLabel({
   );
 }
 
-/** Card: slate fill, hairline border, 14px radius. Active = 2px signal left edge, never a glow.
- *  `pressed` is the reference's hover state translated to touch: border brightens, card lifts 1px. */
+/** Card (§2.3): raised surface, hairline border, no shadow — containment for
+ *  content objects. Active = a thin white left edge (never yellow: action is
+ *  reserved for the one primary button). Press brightens the border. */
 export function Card({
   children,
   active = false,
@@ -57,10 +58,7 @@ export function Card({
     <View
       style={[
         st.card,
-        pressed && {
-          borderColor: 'rgba(255,255,255,0.18)',
-          transform: [{ translateY: -1 }, { scale: 0.988 }],
-        },
+        pressed && { borderColor: color.disabled, transform: [{ scale: 0.988 }] },
         style,
       ]}
     >
@@ -145,7 +143,7 @@ export function ChipSelect<T extends string>({
               onPress={() => onChange(on && clearable ? null : o)}
               style={[st.chip, on && st.chipOn]}
             >
-              <Text style={[st.chipText, on && { color: color.signal }]}>
+              <Text style={[st.chipText, on && { color: color.white }]}>
                 {(labelOf ? labelOf(o) : o).toUpperCase()}
               </Text>
             </Pressable>
@@ -183,7 +181,7 @@ export function YesNo({
               onPress={() => onChange(on && clearable ? null : b)}
               style={[st.chip, on && st.chipOn]}
             >
-              <Text style={[st.chipText, on && { color: color.signal }]}>{b ? 'YES' : 'NO'}</Text>
+              <Text style={[st.chipText, on && { color: color.white }]}>{b ? 'YES' : 'NO'}</Text>
             </Pressable>
           );
         })}
@@ -217,14 +215,12 @@ export function DataCell({
 
 const st = StyleSheet.create({
   card: {
-    // Glass surface over true black: translucent fill, luminous border, depth.
-    backgroundColor: color.glass,
+    backgroundColor: color.slate,
     borderWidth: 1,
-    borderColor: color.glassBorder,
+    borderColor: color.hair,
     borderRadius: 16,
     padding: 18,
     overflow: 'hidden',
-    boxShadow: shadow.card,
   },
   activeEdge: {
     position: 'absolute',
@@ -232,7 +228,7 @@ const st = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 2,
-    backgroundColor: color.signal,
+    backgroundColor: color.white,
   },
   input: {
     backgroundColor: color.slate2,
@@ -248,15 +244,17 @@ const st = StyleSheet.create({
   inputFocused: {
     borderColor: color.steel,
   },
+  // Input chip (§2.1): no yellow. Selection reads as a brighter border and a
+  // white label — the border does the work, not the fill.
   chip: {
     borderWidth: 1,
     borderColor: color.hair,
     backgroundColor: color.slate,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  chipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
   cell: { flex: 1, paddingVertical: 13 },
   cellDivider: { borderLeftWidth: 1, borderLeftColor: color.hair, paddingLeft: 16 },

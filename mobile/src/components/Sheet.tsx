@@ -2,7 +2,7 @@ import { ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { color, font, layout, shadow } from '../theme/tokens';
+import { color, font, layout } from '../theme/tokens';
 import { MonoLabel } from './ui';
 
 /**
@@ -62,15 +62,15 @@ const st = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.68)',
   },
   sheet: {
-    backgroundColor: color.glassStrong,
+    // Overlay surface, hairline top, no shadow (§0.3 / §2).
+    backgroundColor: color.slate2,
     borderTopWidth: 1,
-    borderTopColor: color.glassBorder,
+    borderTopColor: color.hair,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     paddingHorizontal: layout.screenPadding,
     paddingTop: 10,
     maxHeight: '85%',
-    boxShadow: shadow.float,
   },
   handle: {
     alignSelf: 'center',

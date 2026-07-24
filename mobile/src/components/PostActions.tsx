@@ -1,4 +1,4 @@
-import { Feather } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import { useState } from 'react';
 import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
@@ -92,14 +92,23 @@ export function PostActions({
         onPress={doRepost}
         tint={reposted ? color.gpsGood : undefined}
       />
-      <Action
-        icon="heart"
-        size={size}
-        label={likes > 0 ? String(likes) : undefined}
-        onPress={toggleLike}
-        tint={liked ? color.signal : undefined}
-        filled={liked}
-      />
+      {/* §0.1.3: a like goes white and filled, not yellow — the bold count is
+          signal enough. Ionicons gives a real filled heart. */}
+      <Pressable onPress={toggleLike} hitSlop={10} style={st.action}>
+        <Ionicons
+          name={liked ? 'heart' : 'heart-outline'}
+          size={size + 1}
+          color={liked ? color.white : color.dim}
+        />
+        {likes > 0 ? (
+          <Text
+            style={[st.count, liked && { color: color.white, fontFamily: font.bodyBold }]}
+            allowFontScaling={false}
+          >
+            {likes}
+          </Text>
+        ) : null}
+      </Pressable>
       <Action icon="share-2" size={size} onPress={share} />
     </View>
   );
