@@ -1,54 +1,36 @@
-import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import Svg, { Polyline } from 'react-native-svg';
 
-import { accent, motion, text as textToken } from '../theme/tokens';
+import { accent, text as textToken } from '../theme/tokens';
 
-const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
-
-// A little mountain-road wiggle. Same points drive every size.
+// A little mountain-road wiggle. Fixed points drive every size.
 const W = 46;
 const H = 22;
 const POINTS = '3,15 11,7 18,16 26,6 33,15 43,8';
-// Approximate polyline length for the dash math — points are fixed, so is this.
-const LEN = 62;
 
 /**
- * The loading language: a trace segment drawing and redrawing itself. One
- * motif everywhere (feeds, routes, maps) reads as coherence, where a spinner
- * reads as a stall. The trace is the app's signature, so waiting looks like
- * the thing the app is for.
+ * The loading language: the trace motif, breathing. One motif everywhere
+ * (feeds, routes, maps) reads as coherence where a spinner reads as a stall.
+ *
+ * The squiggle is always drawn; only its brightness pulses. (An earlier
+ * version animated an SVG dash offset to "draw" the line, but if that failed
+ * on a device the loader showed nothing — a loader must never be invisible.)
  */
 export function TraceLoader({ size = 1 }: { size?: number }) {
-  const t = useRef(new Animated.Value(0)).current;
-  const [reduce, setReduce] = useState(false);
+  const pulse = useRef(new Animated.Value(0.35)).current;
 
   useEffect(() => {
-    let alive = true;
-    AccessibilityInfo.isReduceMotionEnabled().then((on) => alive && setReduce(on));
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (reduce) {
-      t.setValue(1);
-      return;
-    }
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(t, { toValue: 1, duration: motion.traceMs, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
-        Animated.delay(220),
-        Animated.timing(t, { toValue: 0, duration: 260, easing: Easing.in(Easing.ease), useNativeDriver: false }),
-        Animated.delay(120),
+        Animated.timing(pulse, { toValue: 1, duration: 620, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.35, duration: 620, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, [reduce, t]);
+  }, [pulse]);
 
-  const offset = t.interpolate({ inputRange: [0, 1], outputRange: [LEN, 0] });
   const glow = [
     { w: 4, o: 0.16 },
     { w: 2.6, o: 0.34 },
@@ -56,22 +38,22 @@ export function TraceLoader({ size = 1 }: { size?: number }) {
   ];
 
   return (
-    <Svg width={W * size} height={H * size} viewBox={`0 0 ${W} ${H}`}>
-      {glow.map((g, i) => (
-        <AnimatedPolyline
-          key={i}
-          points={POINTS}
-          fill="none"
-          stroke={accent.trace}
-          strokeWidth={g.w}
-          opacity={g.o}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeDasharray={`${LEN} ${LEN}`}
-          strokeDashoffset={reduce ? 0 : offset}
-        />
-      ))}
-    </Svg>
+    <Animated.View style={{ opacity: pulse }}>
+      <Svg width={W * size} height={H * size} viewBox={`0 0 ${W} ${H}`}>
+        {glow.map((g, i) => (
+          <Polyline
+            key={i}
+            points={POINTS}
+            fill="none"
+            stroke={accent.trace}
+            strokeWidth={g.w}
+            opacity={g.o}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+      </Svg>
+    </Animated.View>
   );
 }
 

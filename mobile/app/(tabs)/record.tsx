@@ -533,7 +533,7 @@ const st = StyleSheet.create({
     width: 18,
     borderTopWidth: 1.5,
     borderStyle: 'dashed',
-    borderColor: color.signal,
+    borderColor: color.traceDim,
     opacity: 0.7,
   },
   gapText: { fontFamily: font.body, fontSize: 11, color: color.steel, lineHeight: 15 },

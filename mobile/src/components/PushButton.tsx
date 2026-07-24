@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
 
-import { accent, color, font, motion, radius, status, surface, text } from '../theme/tokens';
+import { accent, font, motion, radius, status, surface, text } from '../theme/tokens';
 
 type Variant = 'primary' | 'secondary' | 'destructive' | 'signal' | 'slate';
 
@@ -76,21 +76,16 @@ export function PushButton({
           disabledFace,
           {
             height,
+            opacity: press.interpolate({ inputRange: [0, 1], outputRange: [1, 0.9] }),
             transform: [
               { scale: press.interpolate({ inputRange: [0, 1], outputRange: [1, 0.98] }) },
             ],
           },
         ]}
       >
-        {/* A darkening scrim on press, in place of the old plinth travel. */}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            st.scrim,
-            { opacity: press.interpolate({ inputRange: [0, 1], outputRange: [0, 0.12] }) },
-          ]}
-        />
-        <Text style={[st.label, { color: labelColor, fontSize: Math.max(15, Math.round(height * 0.28)) }]}>
+        <Text
+          style={[st.label, { color: labelColor, fontSize: Math.max(15, Math.round(height * 0.28)) }]}
+        >
           {label}
         </Text>
       </Animated.View>
@@ -104,9 +99,7 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
-    overflow: 'hidden',
   },
-  scrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: color.void },
   label: {
     fontFamily: font.display,
     letterSpacing: 2.5,
