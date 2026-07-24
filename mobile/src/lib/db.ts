@@ -218,17 +218,37 @@ export async function createManualRide(
   return data;
 }
 
+/**
+ * A Route is a plan — something you can go ride. (A Ride is history: something
+ * a rider did.) Route standardization, 2026-07-24: one entity, three origins.
+ *
+ *  - `curated` — editorial, no owner, the discovery catalogue (admin-authored)
+ *  - `user`    — a rider promoted one of their traces into a reusable route
+ *  - `adhoc`   — created inline by Plan-a-ride when no route was picked, so
+ *                every planned ride references a real Route and never a null
+ */
+export type RouteSource = 'curated' | 'user' | 'adhoc';
+export type RouteVisibility = 'public' | 'crew' | 'private';
+
 export type Route = {
   id: string;
-  profile_id: string;
+  profile_id: string | null; // null for curated
   source_ride_id: string | null;
+  source: RouteSource;
+  visibility: RouteVisibility;
   name: string;
+  region: string | null;
+  difficulty: Difficulty | null;
   description: string | null;
   terrain_tags: string[] | null;
   distance_km: number;
   photo_url: string | null;
   created_at: string;
 };
+
+/** The columns every route read needs. One place so a schema change is one edit. */
+const ROUTE_COLS =
+  'id, profile_id, source_ride_id, source, visibility, name, region, difficulty, description, terrain_tags, distance_km, photo_url, created_at';
 
 /** Create a route from a ride's segments. The route line concatenates
  *  segments (a route is a recommendation, not a recording) but distance_km
@@ -243,6 +263,8 @@ export async function createRoute(
     terrain_tags: string[];
     distance_km: number;
     segments: [number, number][][];
+    region?: string | null;
+    difficulty?: Difficulty | null;
   }
 ): Promise<Route> {
   const coords = input.segments.flat();
@@ -252,17 +274,82 @@ export async function createRoute(
     .from('routes')
     .insert({
       profile_id: userId,
+      // Explicit, never defaulted: a route created here is a rider deliberately
+      // sharing a ride, so it's a public `user` route. Profile privacy still
+      // gates who can actually see it (can_view, server-side).
+      source: 'user',
+      visibility: 'public',
       source_ride_id: input.source_ride_id,
       name: input.name,
+      region: input.region ?? null,
+      difficulty: input.difficulty ?? null,
       description: input.description,
       terrain_tags: input.terrain_tags.length ? input.terrain_tags : null,
       distance_km: input.distance_km,
       geom: wkt,
     })
-    .select('id, profile_id, source_ride_id, name, description, terrain_tags, distance_km, photo_url, created_at')
+    .select(ROUTE_COLS)
     .single();
   if (error) throw error;
   return data;
+}
+
+/**
+ * The route a planned ride points at. When the rider picked one, that's it;
+ * when they just named the ride, this creates the `adhoc` row that keeps
+ * PlannedRide.route_id non-null and holds the name/region/difficulty.
+ */
+export async function createAdhocRoute(
+  userId: string,
+  input: {
+    name: string;
+    region: string | null;
+    difficulty: Difficulty | null;
+    crew_id: string | null;
+  }
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('routes')
+    .insert({
+      profile_id: userId,
+      source: 'adhoc',
+      // A crew ride's route is crew-scoped; a board ride's is public. The
+      // server refuses a route the destination can't legally show.
+      visibility: input.crew_id ? 'crew' : 'public',
+      crew_id: input.crew_id,
+      name: input.name,
+      region: input.region,
+      difficulty: input.difficulty,
+    })
+    .select('id')
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+/** Routes a rider can pick from when planning: their own, then curated. */
+export async function pickableRoutes(userId: string): Promise<{
+  mine: Route[];
+  curated: Route[];
+}> {
+  const [mine, curated] = await Promise.all([
+    supabase
+      .from('routes')
+      .select(ROUTE_COLS)
+      .eq('profile_id', userId)
+      .eq('source', 'user')
+      .order('created_at', { ascending: false })
+      .limit(50),
+    supabase
+      .from('routes')
+      .select(ROUTE_COLS)
+      .eq('source', 'curated')
+      .order('name')
+      .limit(50),
+  ]);
+  if (mine.error) throw mine.error;
+  if (curated.error) throw curated.error;
+  return { mine: mine.data ?? [], curated: curated.data ?? [] };
 }
 
 export async function getRoute(id: string): Promise<Route | null> {
@@ -270,14 +357,14 @@ export async function getRoute(id: string): Promise<Route | null> {
   // privacy-clipped public view. Same shape either way.
   const own = await supabase
     .from('routes')
-    .select('id, profile_id, source_ride_id, name, description, terrain_tags, distance_km, photo_url, created_at')
+    .select(ROUTE_COLS)
     .eq('id', id)
     .maybeSingle();
   if (own.error) throw own.error;
   if (own.data) return own.data;
   const pub = await supabase
     .from('routes_public')
-    .select('id, profile_id, source_ride_id, name, description, terrain_tags, distance_km, photo_url, created_at')
+    .select(ROUTE_COLS)
     .eq('id', id)
     .maybeSingle();
   if (pub.error) throw pub.error;
@@ -287,7 +374,7 @@ export async function getRoute(id: string): Promise<Route | null> {
 export async function routeForRide(rideId: string): Promise<Route | null> {
   const { data, error } = await supabase
     .from('routes')
-    .select('id, profile_id, source_ride_id, name, description, terrain_tags, distance_km, photo_url, created_at')
+    .select(ROUTE_COLS)
     .eq('source_ride_id', rideId)
     .maybeSingle();
   if (error) throw error;
@@ -440,7 +527,7 @@ export async function searchRiders(userId: string, q: string): Promise<Profile[]
 export async function listRiderRoutes(profileId: string): Promise<Route[]> {
   const { data, error } = await supabase
     .from('routes_public')
-    .select('id, profile_id, source_ride_id, name, description, terrain_tags, distance_km, photo_url, created_at')
+    .select(ROUTE_COLS)
     .eq('profile_id', profileId)
     .order('created_at', { ascending: false });
   if (error) throw error;
@@ -671,7 +758,11 @@ export type RideInvite = {
   bike_category: BikeType | 'any' | null;
   gear_required: boolean | null;
   min_experience: Experience | 'any' | null;
+  /** From the joined Route — difficulty is a property of the road. */
   difficulty: Difficulty | null;
+  /** The route's shape and length, when it has geometry (adhoc routes don't). */
+  route_geom: GeoJson | null;
+  route_distance_km: number | null;
   // The caller's own answers, when they've RSVP'd.
   my_bike_category: BikeType | null;
   my_has_gear: boolean | null;
@@ -704,10 +795,16 @@ export async function listInvites(crewId: string | null): Promise<RideInvite[]> 
   }));
 }
 
+/**
+ * Post a planned ride. Every one references a real Route: either the one the
+ * rider picked, or an `adhoc` route created here from what they typed. That
+ * is what makes ride_invites.route_id non-null — no ride is ever just words.
+ */
 export async function createInvite(
   userId: string,
   input: {
     crew_id: string | null;
+    route_id: string | null; // null = they just named it
     title: string;
     meetup: string | null;
     region: string | null;
@@ -718,9 +815,19 @@ export async function createInvite(
     difficulty: Difficulty | null;
   }
 ): Promise<void> {
+  const routeId =
+    input.route_id ??
+    (await createAdhocRoute(userId, {
+      name: input.title,
+      region: input.region,
+      difficulty: input.difficulty,
+      crew_id: input.crew_id,
+    }));
+
   const { error } = await supabase.from('ride_invites').insert({
     created_by: userId,
     crew_id: input.crew_id,
+    route_id: routeId,
     title: input.title,
     meetup: input.meetup,
     region: input.region,
@@ -728,7 +835,7 @@ export async function createInvite(
     bike_category: input.bike_category,
     gear_required: input.gear_required,
     min_experience: input.min_experience,
-    difficulty: input.difficulty,
+    // difficulty lives on the Route now, not here.
   });
   if (error) throw error;
 }

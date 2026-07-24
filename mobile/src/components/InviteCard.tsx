@@ -7,9 +7,11 @@ import {
   EXPERIENCE,
   Experience,
   inviteAsks,
+  multiLineCoords,
   RideInvite,
   RsvpAnswers,
 } from '../lib/db';
+import { TrackThumb } from './TrackThumb';
 import { color, font } from '../theme/tokens';
 import { PushButton } from './PushButton';
 import { Sheet } from './Sheet';
@@ -93,6 +95,12 @@ export function InviteCard({
     <>
       <Card active={invite.i_am_in} style={{ marginBottom: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+          {/* A planned ride with a mapped route shows the road itself (§4.4) —
+              a shape beats a title string. Adhoc routes have no geometry, so
+              TrackThumb draws its ghosted placeholder instead. */}
+          {invite.route_geom ? (
+            <TrackThumb id={invite.route_id ?? undefined} segments={multiLineCoords(invite.route_geom)} />
+          ) : null}
           <View style={{ flex: 1 }}>
             <MonoLabel size={8.5} style={{ letterSpacing: 1.4 }}>
               {fmtWhen(invite.starts_at).toUpperCase()}
@@ -102,6 +110,9 @@ export function InviteCard({
             <Text style={st.sub}>
               @{invite.handle}
               {invite.meetup ? ` · ${invite.meetup}` : ''}
+              {invite.route_distance_km
+                ? ` · ${Number(invite.route_distance_km).toFixed(0)} km`
+                : ''}
             </Text>
           </View>
           <View style={{ alignItems: 'center', gap: 6 }}>

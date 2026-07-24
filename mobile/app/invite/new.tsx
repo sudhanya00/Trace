@@ -26,6 +26,8 @@ import {
   Experience,
   listCrews,
   myCrewIds,
+  pickableRoutes,
+  Route,
 } from '../../src/lib/db';
 import { color, font, layout } from '../../src/theme/tokens';
 
@@ -58,13 +60,28 @@ export default function NewInvite() {
   const [exp, setExp] = useState<Experience | 'any' | null>(null);
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [pickingRoute, setPickingRoute] = useState(false);
+  const [route, setRoute] = useState<Route | null>(null);
+  const [routes, setRoutes] = useState<{ mine: Route[]; curated: Route[] }>({
+    mine: [],
+    curated: [],
+  });
 
   useEffect(() => {
     if (!session) return;
     Promise.all([listCrews(), myCrewIds(session.user.id)])
       .then(([all, mine]) => setMyCrews(all.filter((c) => mine.has(c.id))))
       .catch(() => {});
+    pickableRoutes(session.user.id).then(setRoutes).catch(() => {});
   }, [session]);
+
+  /** Picking a route names the ride for you — the title stays editable, since
+   *  "Sach Pass with the Sunday crew" is a better ride name than the road's. */
+  const selectRoute = (r: Route) => {
+    setRoute(r);
+    setPickingRoute(false);
+    if (!title.trim()) setTitle(r.name);
+  };
 
   const startsAt = new Date(`${date}T${time}:00`);
   const valid =
@@ -76,11 +93,14 @@ export default function NewInvite() {
     try {
       await createInvite(session.user.id, {
         crew_id: scope,
+        // A picked route is used as-is; otherwise createInvite makes the
+        // adhoc route from what was typed here.
+        route_id: route?.id ?? null,
         title: title.trim(),
         meetup: meetup.trim() || null,
-        region: scope ? null : region.trim() || null,
+        region: route ? route.region : scope ? null : region.trim() || null,
         starts_at: startsAt,
-        difficulty,
+        difficulty: route ? route.difficulty : difficulty,
         bike_category: bike,
         gear_required: gear,
         min_experience: exp,
@@ -101,13 +121,40 @@ export default function NewInvite() {
         <MonoLabel size={9}>Who's in?</MonoLabel>
         <Text style={st.h1}>Plan a ride</Text>
 
+        {/* The route comes first: a planned ride is a plan to ride something.
+            Pick one, or just name it — either way it becomes a real Route. */}
+        <MonoLabel size={8.5} style={{ marginTop: 24, marginBottom: 8 }}>
+          Route
+        </MonoLabel>
+        <Pressable onPress={() => setPickingRoute(true)} style={st.picker}>
+          <View style={{ flex: 1 }}>
+            <Text style={st.pickerValue} numberOfLines={1}>
+              {route ? route.name : 'Just naming it'}
+            </Text>
+            {route ? (
+              <Text style={st.pickerSub} numberOfLines={1}>
+                {[
+                  route.source === 'curated' ? 'Curated' : 'Your route',
+                  route.region,
+                  route.distance_km ? `${Number(route.distance_km).toFixed(0)} km` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
+            ) : (
+              <Text style={st.pickerSub}>No map — just a name and a meeting point</Text>
+            )}
+          </View>
+          <Feather name="chevron-down" size={16} color={color.steel} />
+        </Pressable>
+
         <Field
           label="Ride"
           value={title}
           onChangeText={setTitle}
           placeholder="Dawn run to Sonamarg"
           autoCapitalize="sentences"
-          style={{ marginTop: 24 }}
+          style={{ marginTop: 16 }}
         />
         <View style={{ flexDirection: 'row', gap: 14, marginTop: 16 }}>
           <Field label="Date" value={date} onChangeText={setDate} placeholder="2026-07-20" style={{ flex: 1 }} />
@@ -133,26 +180,48 @@ export default function NewInvite() {
           </Text>
           <Feather name="chevron-down" size={16} color={color.steel} />
         </Pressable>
-        {scope === null && (
-          <Field
-            label="Region"
-            value={region}
-            onChangeText={setRegion}
-            placeholder="Kashmir"
-            autoCapitalize="words"
-            style={{ marginTop: 16 }}
+        {/* Region and difficulty belong to the Route. With one picked they're
+            read-only facts about that road; without, they're what defines the
+            adhoc route this ride creates. */}
+        {scope === null &&
+          (route ? (
+            <View style={{ marginTop: 16 }}>
+              <MonoLabel size={8.5} style={{ marginBottom: 7 }}>
+                Region
+              </MonoLabel>
+              <Text style={st.readonly}>{route.region ?? '—'}</Text>
+            </View>
+          ) : (
+            <Field
+              label="Region"
+              value={region}
+              onChangeText={setRegion}
+              placeholder="Kashmir"
+              autoCapitalize="words"
+              style={{ marginTop: 16 }}
+            />
+          ))}
+
+        {route ? (
+          <View style={{ marginTop: 28 }}>
+            <MonoLabel size={8.5} style={{ marginBottom: 7 }}>
+              How hard is the route?
+            </MonoLabel>
+            <Text style={st.readonly}>
+              {route.difficulty ? route.difficulty.toUpperCase() : 'NOT RATED'}
+            </Text>
+          </View>
+        ) : (
+          /* A property of the road, so it's stated, never asked back. */
+          <ChipSelect
+            label="How hard is the route?"
+            options={DIFFICULTY}
+            value={difficulty}
+            onChange={setDifficulty}
+            clearable
+            style={{ marginTop: 28 }}
           />
         )}
-
-        {/* A property of the road, so it's stated, never asked back. */}
-        <ChipSelect
-          label="How hard is the route?"
-          options={DIFFICULTY}
-          value={difficulty}
-          onChange={setDifficulty}
-          clearable
-          style={{ marginTop: 28 }}
-        />
 
         <View style={st.divider} />
         <MonoLabel size={9}>Who it suits</MonoLabel>
@@ -184,6 +253,60 @@ export default function NewInvite() {
           <Text style={st.cancelText}>Cancel</Text>
         </Pressable>
       </ScrollView>
+
+      <Sheet
+        visible={pickingRoute}
+        onClose={() => setPickingRoute(false)}
+        label="Route"
+        title="What are you riding?"
+      >
+        <PickRow
+          label="Just name it"
+          sub="No map — a name and a meeting point is enough"
+          on={route === null}
+          onPress={() => {
+            setRoute(null);
+            setPickingRoute(false);
+          }}
+        />
+        {routes.curated.length > 0 && (
+          <MonoLabel size={8.5} style={{ marginTop: 18, marginBottom: 4 }}>
+            Curated
+          </MonoLabel>
+        )}
+        {routes.curated.map((r) => (
+          <PickRow
+            key={r.id}
+            label={r.name}
+            sub={[r.region, r.difficulty, r.distance_km ? `${Number(r.distance_km).toFixed(0)} km` : null]
+              .filter(Boolean)
+              .join(' · ')}
+            on={route?.id === r.id}
+            onPress={() => selectRoute(r)}
+          />
+        ))}
+        {routes.mine.length > 0 && (
+          <MonoLabel size={8.5} style={{ marginTop: 18, marginBottom: 4 }}>
+            My routes
+          </MonoLabel>
+        )}
+        {routes.mine.map((r) => (
+          <PickRow
+            key={r.id}
+            label={r.name}
+            sub={[r.region, r.difficulty, r.distance_km ? `${Number(r.distance_km).toFixed(0)} km` : null]
+              .filter(Boolean)
+              .join(' · ')}
+            on={route?.id === r.id}
+            onPress={() => selectRoute(r)}
+          />
+        ))}
+        {routes.curated.length === 0 && routes.mine.length === 0 && (
+          <Text style={st.note}>
+            No saved routes yet — share a ride as a route and it shows up here.
+          </Text>
+        )}
+      </Sheet>
 
       <Sheet visible={picking} onClose={() => setPicking(false)} label="Posts to" title="Where does it go?">
         <PickRow
@@ -264,7 +387,19 @@ const st = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 13,
   },
-  pickerValue: { flex: 1, fontFamily: font.body, fontSize: 15, color: color.white },
+  pickerValue: { fontFamily: font.body, fontSize: 15, color: color.white },
+  pickerSub: { fontFamily: font.body, fontSize: 11.5, color: color.steel, marginTop: 3 },
+  readonly: {
+    fontFamily: font.body,
+    fontSize: 15,
+    color: color.steel,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    backgroundColor: color.slate,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 10,
+  },
   pickRow: {
     flexDirection: 'row',
     alignItems: 'center',

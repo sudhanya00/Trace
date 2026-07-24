@@ -1104,6 +1104,65 @@ describe('route standardization', () => {
     assert.ok(forged.error, 'curation is gated on the admin flag');
   });
 
+  it('the client’s two Plan-a-ride paths both produce a real route', async () => {
+    // Path A — "just name it": the adhoc route is created from the typed name,
+    // exactly as createInvite() does when no route was picked.
+    const adhocId = await adhocRoute(asha, ashaId, 'test: typed only', {
+      difficulty: 'moderate',
+      region: 'Himachal',
+    });
+    const { data: a } = await asha
+      .from('ride_invites')
+      .insert({
+        created_by: ashaId,
+        route_id: adhocId,
+        title: 'test: typed only',
+        region: 'Himachal',
+        starts_at: new Date(Date.now() + 86400e3).toISOString(),
+      })
+      .select('id')
+      .single();
+
+    // Path B — a picked route with real geometry (what "share a ride as a
+    // route" produces, then reused for planning).
+    const { data: picked, error: pickErr } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'public',
+        name: 'test: picked route',
+        region: 'Kashmir',
+        difficulty: 'hard',
+        distance_km: 2.2,
+        geom: 'LINESTRING(77.0 31.00, 77.0 31.02)',
+      })
+      .select('id')
+      .single();
+    assert.equal(pickErr, null);
+    const { data: b } = await asha
+      .from('ride_invites')
+      .insert({
+        created_by: ashaId,
+        route_id: picked.id,
+        title: 'test: picked route ride',
+        starts_at: new Date(Date.now() + 86400e3).toISOString(),
+      })
+      .select('id')
+      .single();
+
+    const board = await asha.rpc('invite_list', { p_crew_id: null });
+    const rowA = board.data.find((i) => i.id === a.id);
+    const rowB = board.data.find((i) => i.id === b.id);
+
+    assert.equal(rowA.difficulty, 'moderate', 'adhoc route carries difficulty');
+    assert.equal(rowA.route_geom, null, 'a named-only ride has no shape to draw');
+
+    assert.equal(rowB.difficulty, 'hard', 'picked route supplies difficulty');
+    assert.ok(rowB.route_geom, 'a mapped route gives the board card its shape');
+    assert.ok(Number(rowB.route_distance_km) > 2, 'and its distance');
+  });
+
   it('the adhoc sweep spares routes with an upcoming ride', async () => {
     const keep = await adhocRoute(asha, ashaId, 'test: upcoming adhoc');
     await asha.from('ride_invites').insert({
