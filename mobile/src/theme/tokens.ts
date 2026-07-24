@@ -30,7 +30,10 @@ export const surface = {
 export const text = {
   primary: '#F5F5F2',
   secondary: '#9A9A96',
-  tertiary: '#5C5C58', // timestamps, metadata, inactive nav
+  // Bumped from #5C5C58 after the §5 audit: on surface.raised the old value
+  // was 2.83:1, under even the 3:1 large-text floor. #6E6E68 is 3.71:1 on
+  // raised, 4.09:1 on base — passes, and still reads as de-emphasised.
+  tertiary: '#6E6E68', // timestamps, metadata, inactive nav
   disabled: '#3A3A38',
 } as const;
 

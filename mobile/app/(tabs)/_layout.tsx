@@ -3,6 +3,7 @@ import { BlurView } from 'expo-blur';
 import { Tabs } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
+import { tick } from '../../src/lib/haptics';
 import { color, font } from '../../src/theme/tokens';
 
 /** §2.4: no puck, no glow. Active is simply white, inactive tertiary — the
@@ -26,6 +27,7 @@ const ti = StyleSheet.create({
 export default function TabsLayout() {
   return (
     <Tabs
+      screenListeners={{ tabPress: () => tick() }}
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: color.void },

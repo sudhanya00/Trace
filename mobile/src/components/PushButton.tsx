@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
 
+import { tapPrimary, tick } from '../lib/haptics';
 import { accent, font, motion, radius, status, surface, text } from '../theme/tokens';
 
 type Variant = 'primary' | 'secondary' | 'destructive' | 'signal' | 'slate';
@@ -58,9 +59,17 @@ export function PushButton({
 
   const disabledFace = disabled ? { backgroundColor: surface.raised, borderWidth: 0 } : null;
 
+  // A button press is a deliberate act, so it earns a haptic — primary gets a
+  // light impact, everything else the softer selection tick (§4).
+  const handlePress = () => {
+    if (kind === 'primary') tapPrimary();
+    else tick();
+    onPress();
+  };
+
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       onPressIn={() => move(true)}
       onPressOut={() => move(false)}
       disabled={disabled}

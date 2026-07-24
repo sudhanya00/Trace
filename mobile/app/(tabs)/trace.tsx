@@ -14,6 +14,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { BikeMarker } from '../../src/components/BikeMarker';
 import { Loading } from '../../src/components/Loading';
+import { NumberTicker } from '../../src/components/NumberTicker';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import { BikeType, listBikes, listMyRides, traceBounds } from '../../src/lib/db';
@@ -208,10 +209,17 @@ export default function TraceMap() {
         </MonoLabel>
         <Text style={st.h1}>Trace</Text>
         {totalKm != null && rideCount > 0 && (
-          <Text style={st.total} allowFontScaling={false}>
-            {Math.round(totalKm).toLocaleString('en-IN')}
-            <Text style={st.totalUnit}> km · {rideCount} rides</Text>
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+            <NumberTicker
+              value={totalKm}
+              format={(n) => Math.round(n).toLocaleString('en-IN')}
+              style={st.total}
+            />
+            <Text style={st.totalUnit} allowFontScaling={false}>
+              {' '}
+              km · {rideCount} rides
+            </Text>
+          </View>
         )}
       </View>
 

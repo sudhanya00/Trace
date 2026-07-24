@@ -42,6 +42,7 @@ import {
   resumeRide,
   startRide,
 } from '../../src/lib/recording';
+import { success } from '../../src/lib/haptics';
 import { oemFamily } from '../../src/lib/oem';
 import { syncPendingRides } from '../../src/lib/sync';
 import { color, font, layout } from '../../src/theme/tokens';
@@ -194,6 +195,7 @@ export default function Record() {
   const onFinish = async () => {
     if (phase.kind !== 'recording') return;
     const s = rideState(phase.ride.id);
+    success(); // the ride is saved — a moment worth feeling (§4)
     await finishRide(phase.ride);
     // §12b: gap metrics + device from day one — tuning without this is guesswork.
     posthog?.capture('ride_finished', {

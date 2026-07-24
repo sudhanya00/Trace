@@ -1,12 +1,12 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { CreateSheet } from '../../src/components/CreateSheet';
 import { InviteCard } from '../../src/components/InviteCard';
-import { Loading } from '../../src/components/Loading';
 import { PostCard } from '../../src/components/PostCard';
+import { FeedSkeleton } from '../../src/components/Skeleton';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
@@ -38,6 +38,7 @@ export default function Explore() {
   const [feed, setFeed] = useState<FeedItem[] | null>(null);
   const [suggested, setSuggested] = useState<SuggestedRider[]>([]);
   const [creating, setCreating] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(() => {
     exploreFeed().then(setFeed).catch(() => {});
@@ -45,6 +46,15 @@ export default function Explore() {
   }, []);
 
   useFocusEffect(load);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      exploreFeed().then(setFeed).catch(() => {}),
+      suggestedRiders().then(setSuggested).catch(() => {}),
+    ]);
+    setRefreshing(false);
+  }, []);
 
   const toggleRsvp = async (id: string, going: boolean, answers?: RsvpAnswers) => {
     if (!session) return;
@@ -69,12 +79,21 @@ export default function Explore() {
       </View>
 
       {feed === null ? (
-        <Loading label="Finding the conversation" />
+        <FeedSkeleton />
       ) : (
         <FlatList
           data={feed}
           keyExtractor={(i) => `${i.kind}:${i.id}`}
           contentContainerStyle={st.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={color.trace}
+              colors={[color.trace]}
+              progressBackgroundColor={color.slate}
+            />
+          }
           ListHeaderComponent={
             suggested.length > 0 ? (
               <View style={st.suggestWrap}>

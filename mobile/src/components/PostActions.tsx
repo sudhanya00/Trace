@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '../lib/auth';
+import { tick } from '../lib/haptics';
 import { likePost, Post, repost, unlikePost } from '../lib/db';
 import { color, font } from '../theme/tokens';
 
@@ -35,6 +36,7 @@ export function PostActions({
   const toggleLike = async () => {
     if (!session) return;
     const next = !liked;
+    if (next) tick(); // a like is a deliberate tap; a soft one only
     setLiked(next);
     setLikes((n) => n + (next ? 1 : -1));
     try {
