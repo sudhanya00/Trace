@@ -104,7 +104,7 @@ const st = StyleSheet.create({
     left: 0,
     right: 0,
     height: 2,
-    backgroundColor: color.signal,
+    backgroundColor: color.white,
   },
   empty: { fontFamily: font.body, fontSize: 12.5, color: color.dim, marginTop: 18, lineHeight: 18 },
   row: {

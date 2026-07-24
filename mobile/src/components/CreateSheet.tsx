@@ -40,7 +40,7 @@ export function CreateSheet({ visible, onClose }: { visible: boolean; onClose: (
           {({ pressed }) => (
             <View style={[st.row, pressed && { backgroundColor: color.slate2 }]}>
               <View style={st.puck}>
-                <Feather name={o.icon} size={19} color={color.signal} />
+                <Feather name={o.icon} size={19} color={color.white} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={st.title}>{o.title}</Text>
@@ -74,7 +74,7 @@ const st = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,214,10,0.12)',
+    backgroundColor: color.slate2,
   },
   title: {
     fontFamily: font.display,

@@ -334,7 +334,7 @@ export default function Record() {
           }}
           style={st.liveShareRow}
         >
-          <View style={[st.liveShareDot, liveShare && { backgroundColor: color.signal }]} />
+          <View style={[st.liveShareDot, liveShare && { backgroundColor: color.trace }]} />
           <Text style={st.liveShareText}>
             Share live location with followers while riding {liveShare ? '— on' : '— off'}
           </Text>
@@ -354,7 +354,7 @@ export default function Record() {
                 onPress={() => setBikeId(b.id)}
                 style={[st.bikeChip, b.id === bikeId && st.bikeChipOn]}
               >
-                <Text style={[st.bikeChipText, b.id === bikeId && { color: color.signal }]}>
+                <Text style={[st.bikeChipText, b.id === bikeId && { color: color.white }]}>
                   {b.make.toUpperCase()} {b.model.toUpperCase()}
                 </Text>
               </Pressable>
@@ -458,7 +458,7 @@ function LiveIndicator({ label, paused }: { label: string; paused: boolean }) {
     return () => loop.stop();
   }, [paused, opacity]);
 
-  const tint = paused ? color.steel : color.signal;
+  const tint = paused ? color.steel : color.trace;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
       <Animated.View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: tint, opacity }} />
@@ -549,7 +549,7 @@ const st = StyleSheet.create({
     paddingVertical: 9,
     marginRight: 8,
   },
-  bikeChipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  bikeChipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   bikeChipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
 
   warnRow: { marginHorizontal: layout.screenPadding, marginTop: 14 },
@@ -566,7 +566,7 @@ const st = StyleSheet.create({
   },
   interruptedTitle: { fontFamily: font.bodySemi, fontSize: 14, color: color.amber },
   interruptedBody: { fontFamily: font.body, fontSize: 12, color: color.steel, lineHeight: 17, marginTop: 6 },
-  oemLink: { fontFamily: font.bodyMedium, fontSize: 12, color: color.signal, lineHeight: 17 },
+  oemLink: { fontFamily: font.bodyMedium, fontSize: 12, color: color.amber, lineHeight: 17 },
 
   betaRow: { marginHorizontal: layout.screenPadding, marginTop: 16 },
   betaText: { fontFamily: font.body, fontSize: 11, color: color.dim, lineHeight: 16 },

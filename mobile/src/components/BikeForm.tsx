@@ -73,7 +73,7 @@ export function BikeForm({
             onPress={() => setType(type === t ? null : t)}
             style={[st.chip, type === t && st.chipOn]}
           >
-            <Text style={[st.chipText, type === t && { color: color.signal }]}>{t.toUpperCase()}</Text>
+            <Text style={[st.chipText, type === t && { color: color.white }]}>{t.toUpperCase()}</Text>
           </Pressable>
         ))}
       </View>
@@ -107,6 +107,6 @@ const st = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  chipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
 });

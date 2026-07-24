@@ -109,7 +109,7 @@ function Tag({ kind }: { kind: 'active' | 'resting' | 'retired' }) {
   const isActive = kind === 'active';
   return (
     <View style={[st.tag, isActive ? st.tagActive : st.tagRest]}>
-      <Text style={[st.tagText, { color: isActive ? color.signal : '#8FA3BC' }]}>
+      <Text style={[st.tagText, { color: isActive ? color.white : color.steel }]}>
         {kind.toUpperCase()}
       </Text>
     </View>
@@ -154,7 +154,7 @@ const st = StyleSheet.create({
     lineHeight: 25,
   },
   tag: { paddingHorizontal: 7, paddingVertical: 3.5, borderRadius: 3, borderWidth: 1 },
-  tagActive: { backgroundColor: 'rgba(255,214,10,.14)', borderColor: 'rgba(255,214,10,.3)' },
+  tagActive: { backgroundColor: color.slate2, borderColor: color.disabled },
   tagRest: { backgroundColor: 'rgba(63,85,112,.2)', borderColor: 'rgba(63,85,112,.42)' },
   tagText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2 },
   bikeStats: { flexDirection: 'row' },

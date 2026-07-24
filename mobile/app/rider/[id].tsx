@@ -319,8 +319,8 @@ const st = StyleSheet.create({
   privateNote: { fontFamily: font.body, fontSize: 12.5, color: color.steel, lineHeight: 18, marginTop: 20 },
   liveWrap: { marginTop: 22 },
   liveHead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 8 },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.signal },
-  liveLabel: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.6, color: color.signal },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.trace },
+  liveLabel: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.6, color: color.trace },
   liveWhen: { fontFamily: font.mono, fontSize: 8, color: color.dim, marginLeft: 'auto' },
   liveMap: {
     height: 170,

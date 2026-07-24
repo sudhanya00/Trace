@@ -113,7 +113,7 @@ export default function CrewAbout() {
           }}
           style={st.boardRow}
         >
-          <Text style={[st.boardText, crew.on_leaderboard && { color: color.signal }]}>
+          <Text style={[st.boardText, crew.on_leaderboard && { color: color.white }]}>
             {crew.on_leaderboard ? 'ON THE GLOBAL LEADERBOARD' : 'JOIN THE GLOBAL LEADERBOARD'}
           </Text>
           <View style={[st.check, crew.on_leaderboard && st.checkOn]} />
@@ -251,7 +251,7 @@ const st = StyleSheet.create({
     borderColor: color.hair,
     backgroundColor: color.slate2,
   },
-  checkOn: { backgroundColor: color.signal, borderColor: color.signal },
+  checkOn: { backgroundColor: color.white, borderColor: color.white },
   planLink: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
   empty: { fontFamily: font.body, fontSize: 12.5, color: color.dim },
   row: {

@@ -155,7 +155,7 @@ const st = StyleSheet.create({
   },
   dot: {
     fontFamily: font.display,
-    color: color.signal, // the only blue in the readout
+    color: color.white, // the only blue in the readout
     marginHorizontal: 1,
     includeFontPadding: false,
   },

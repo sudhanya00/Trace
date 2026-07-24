@@ -8,6 +8,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 
 import { Avatar } from '../../src/components/Avatar';
 import { Badges } from '../../src/components/Badges';
+import { NumberTicker } from '../../src/components/NumberTicker';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import { profileStats, ProfileStats, updateProfile, uploadAvatar } from '../../src/lib/db';
@@ -135,12 +136,13 @@ export default function ProfileTab() {
 
       <Badges profileId={profile.id} />
 
-      {/* Four numbers, no units in the value — the label carries the unit. */}
+      {/* Four numbers, no units in the value — the label carries the unit.
+          They count up on first view (§3.5). */}
       <View style={st.statRow}>
-        <Stat label="Kms" value={compact(stats?.total_km ?? 0)} first />
-        <Stat label="Rides" value={String(stats?.ride_count ?? 0)} />
-        <Stat label="Bikes" value={String(stats?.bike_count ?? 0)} />
-        <Stat label="Crews" value={String(stats?.crew_count ?? 0)} />
+        <Stat label="Kms" value={stats?.total_km ?? 0} format={compact} first />
+        <Stat label="Rides" value={stats?.ride_count ?? 0} />
+        <Stat label="Bikes" value={stats?.bike_count ?? 0} />
+        <Stat label="Crews" value={stats?.crew_count ?? 0} />
       </View>
 
       <View style={st.tabsRow}>
@@ -164,12 +166,20 @@ export default function ProfileTab() {
   );
 }
 
-function Stat({ label, value, first = false }: { label: string; value: string; first?: boolean }) {
+function Stat({
+  label,
+  value,
+  format,
+  first = false,
+}: {
+  label: string;
+  value: number;
+  format?: (n: number) => string;
+  first?: boolean;
+}) {
   return (
     <View style={[st.stat, !first && st.statDivider]}>
-      <Text style={st.statValue} allowFontScaling={false}>
-        {value}
-      </Text>
+      <NumberTicker value={value} format={format} style={st.statValue} />
       <MonoLabel size={8} style={{ marginTop: 4 }}>
         {label}
       </MonoLabel>
@@ -239,6 +249,6 @@ const st = StyleSheet.create({
     left: 0,
     right: 0,
     height: 2,
-    backgroundColor: color.signal,
+    backgroundColor: color.white,
   },
 });

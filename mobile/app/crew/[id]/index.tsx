@@ -214,7 +214,7 @@ export default function CrewRoom() {
                     }}
                     style={[st.reqBtn, st.reqBtnOn]}
                   >
-                    <Text style={[st.reqBtnText, { color: color.signal }]}>LET IN</Text>
+                    <Text style={[st.reqBtnText, { color: color.white }]}>LET IN</Text>
                   </Pressable>
                   <Pressable
                     onPress={async () => {
@@ -255,7 +255,7 @@ export default function CrewRoom() {
               }}
               style={st.boardRow}
             >
-              <Text style={[st.boardText, crew.on_leaderboard && { color: color.signal }]}>
+              <Text style={[st.boardText, crew.on_leaderboard && { color: color.white }]}>
                 {crew.on_leaderboard ? 'ON THE GLOBAL LEADERBOARD' : 'JOIN THE GLOBAL LEADERBOARD'}
               </Text>
               <View style={[st.check, crew.on_leaderboard && st.checkOn]} />
@@ -447,13 +447,13 @@ const st = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,214,10,.22)',
-    backgroundColor: 'rgba(255,214,10,.07)',
+    borderColor: color.hair,
+    backgroundColor: color.slate,
   },
-  contribDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: color.signal },
+  contribDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: color.white },
   contribText: { fontFamily: font.body, fontSize: 12, color: color.steel },
   contribWho: { fontFamily: font.bodySemi, color: color.white },
-  contribKm: { fontFamily: font.bodyBold, color: color.signal, fontVariant: ['tabular-nums'] },
+  contribKm: { fontFamily: font.bodyBold, color: color.white, fontVariant: ['tabular-nums'] },
   boardRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -482,7 +482,7 @@ const st = StyleSheet.create({
     borderColor: color.hair,
     backgroundColor: color.slate2,
   },
-  checkOn: { backgroundColor: color.signal, borderColor: color.signal },
+  checkOn: { backgroundColor: color.white, borderColor: color.white },
   planText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
   joinWrap: { flex: 1, paddingHorizontal: layout.screenPadding, paddingTop: 26 },
   desc: { fontFamily: font.body, fontSize: 13.5, color: '#B9C0C3', lineHeight: 20 },

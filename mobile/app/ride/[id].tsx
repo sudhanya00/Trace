@@ -411,7 +411,7 @@ const st = StyleSheet.create({
     marginTop: 20,
   },
   gapRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 13 },
-  gapDash: { width: 18, borderTopWidth: 1.5, borderStyle: 'dashed', borderColor: color.signal, opacity: 0.7 },
+  gapDash: { width: 18, borderTopWidth: 1.5, borderStyle: 'dashed', borderColor: color.traceDim, opacity: 0.7 },
   gapText: { flex: 1, fontFamily: font.body, fontSize: 11, color: color.steel, lineHeight: 15 },
   gapStrong: { color: '#B9C0C3', fontFamily: font.bodyMedium },
   pendingNote: { fontFamily: font.body, fontSize: 12, color: color.steel, lineHeight: 17, marginTop: 22 },

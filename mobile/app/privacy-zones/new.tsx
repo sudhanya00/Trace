@@ -106,13 +106,13 @@ export default function NewZone() {
                 type="fill"
                 id="zone-fill"
                 source="zone"
-                paint={{ 'fill-color': color.signal, 'fill-opacity': 0.12 }}
+                paint={{ 'fill-color': color.amber, 'fill-opacity': 0.12 }}
               />
               <Layer
                 type="line"
                 id="zone-line"
                 source="zone"
-                paint={{ 'line-color': color.signal, 'line-width': 1.5, 'line-dasharray': [2, 2] }}
+                paint={{ 'line-color': color.amber, 'line-width': 1.5, 'line-dasharray': [2, 2] }}
               />
             </GeoJSONSource>
           )}
@@ -134,7 +134,7 @@ export default function NewZone() {
               onPress={() => setRadius(r)}
               style={[st.chip, r === radius && st.chipOn]}
             >
-              <Text style={[st.chipText, r === radius && { color: color.signal }]}>
+              <Text style={[st.chipText, r === radius && { color: color.white }]}>
                 {r < 1000 ? `${r} M` : `${r / 1000} KM`}
               </Text>
             </Pressable>
@@ -194,7 +194,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  chipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
   cancel: { alignSelf: 'center', marginTop: 14, padding: 8 },
   cancelText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },

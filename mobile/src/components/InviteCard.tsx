@@ -106,7 +106,7 @@ export function InviteCard({
           </View>
           <View style={{ alignItems: 'center', gap: 6 }}>
             <Pressable onPress={press} style={[st.rsvpBtn, invite.i_am_in && st.rsvpBtnOn]}>
-              <Text style={[st.rsvpText, invite.i_am_in && { color: color.signal }]}>
+              <Text style={[st.rsvpText, invite.i_am_in && { color: color.white }]}>
                 {invite.i_am_in ? "I'M IN" : 'COUNT ME IN'}
               </Text>
             </Pressable>
@@ -204,7 +204,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
-  rsvpBtnOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  rsvpBtnOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   rsvpText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2, color: color.steel },
   count: { fontFamily: font.mono, fontSize: 8.5, color: color.dim, fontVariant: ['tabular-nums'] },
   reqRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },

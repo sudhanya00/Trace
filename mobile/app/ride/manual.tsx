@@ -86,7 +86,7 @@ export default function ManualRide() {
                   onPress={() => setBikeId(b.id)}
                   style={[st.chip, b.id === bikeId && st.chipOn]}
                 >
-                  <Text style={[st.chipText, b.id === bikeId && { color: color.signal }]}>
+                  <Text style={[st.chipText, b.id === bikeId && { color: color.white }]}>
                     {b.make.toUpperCase()} {b.model.toUpperCase()}
                   </Text>
                 </Pressable>
@@ -124,7 +124,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  chipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
   back: { alignSelf: 'center', marginTop: 20, padding: 8 },
   backText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },

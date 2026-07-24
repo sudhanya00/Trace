@@ -5,6 +5,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CrewLeaderboards } from '../../src/components/CrewLeaderboards';
 import { InviteCard } from '../../src/components/InviteCard';
+import { TraceLoader } from '../../src/components/Loading';
+import { PushButton } from '../../src/components/PushButton';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
@@ -108,7 +110,7 @@ export default function Riders() {
                 {e.display_name ? <Text style={st.rowSub}>{e.display_name}</Text> : null}
               </Pressable>
               <Pressable onPress={() => answer(e, true)} style={[st.smallBtn, st.smallBtnOn]}>
-                <Text style={[st.smallBtnText, { color: color.signal }]}>ACCEPT</Text>
+                <Text style={[st.smallBtnText, { color: color.white }]}>ACCEPT</Text>
               </Pressable>
               <Pressable onPress={() => answer(e, false)} style={st.smallBtn}>
                 <Text style={st.smallBtnText}>DECLINE</Text>
@@ -137,26 +139,35 @@ export default function Riders() {
         <CrewLeaderboards crews={crews} />
       </View>
 
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          marginTop: 30,
-        }}
-      >
-        <MonoLabel size={9}>Ride board</MonoLabel>
-        <Pressable onPress={() => router.push('/invite/new')} hitSlop={8}>
-          <Text style={st.planLink}>+ PLAN A RIDE</Text>
-        </Pressable>
-      </View>
-      <View style={{ marginTop: 8 }}>
+      <MonoLabel size={9} style={{ marginTop: 30 }}>
+        Ride board
+      </MonoLabel>
+      <View style={{ marginTop: 10 }}>
         {board.length === 0 ? (
-          <Text style={st.boardEmpty}>Nothing planned — post the first ride.</Text>
+          // A designed empty state (§3.4): a ghosted trace in the crew
+          // language, a line of copy, and a real button — not a dead-end.
+          <View style={st.emptyState}>
+            <TraceLoader size={1.6} />
+            <Text style={st.boardEmpty}>Nothing planned yet. Put a ride on the board and see who's in.</Text>
+            <PushButton
+              label="Plan a ride"
+              variant="secondary"
+              onPress={() => router.push('/invite/new')}
+              style={{ alignSelf: 'stretch', marginTop: 4 }}
+            />
+          </View>
         ) : (
-          board.map((i) => (
-            <InviteCard key={i.id} invite={i} onToggle={(g, a) => toggleRsvp(i, g, a)} />
-          ))
+          <>
+            {board.map((i) => (
+              <InviteCard key={i.id} invite={i} onToggle={(g, a) => toggleRsvp(i, g, a)} />
+            ))}
+            <PushButton
+              label="Plan a ride"
+              variant="secondary"
+              onPress={() => router.push('/invite/new')}
+              style={{ marginTop: 6 }}
+            />
+          </>
         )}
       </View>
     </ScrollView>
@@ -192,9 +203,9 @@ const st = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  smallBtnOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  smallBtnOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   smallBtnText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2, color: color.steel },
-  unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.signal },
+  unreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.white },
   crewsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -207,5 +218,6 @@ const st = StyleSheet.create({
     gap: 8,
   },
   planLink: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
-  boardEmpty: { fontFamily: font.body, fontSize: 12.5, color: color.dim },
+  boardEmpty: { fontFamily: font.body, fontSize: 12.5, color: color.dim, textAlign: 'center', lineHeight: 18 },
+  emptyState: { alignItems: 'center', gap: 14, paddingVertical: 24, borderWidth: 1, borderColor: color.hair, borderRadius: 16, paddingHorizontal: 20 },
 });

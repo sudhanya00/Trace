@@ -149,7 +149,7 @@ export default function ShareRoute() {
                 onPress={() => setTags(on ? tags.filter((x) => x !== t) : [...tags, t])}
                 style={[st.chip, on && st.chipOn]}
               >
-                <Text style={[st.chipText, on && { color: color.signal }]}>{t.toUpperCase()}</Text>
+                <Text style={[st.chipText, on && { color: color.white }]}>{t.toUpperCase()}</Text>
               </Pressable>
             );
           })}
@@ -203,7 +203,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  chipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
   noTrack: { fontFamily: font.body, fontSize: 12, color: color.amber, marginTop: 12 },
   back: { alignSelf: 'center', marginTop: 20, padding: 8 },

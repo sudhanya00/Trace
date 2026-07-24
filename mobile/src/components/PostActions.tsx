@@ -94,7 +94,7 @@ export function PostActions({
       />
       {/* §0.1.3: a like goes white and filled, not yellow — the bold count is
           signal enough. Ionicons gives a real filled heart. */}
-      <Pressable onPress={toggleLike} hitSlop={10} style={st.action}>
+      <Pressable onPress={toggleLike} hitSlop={14} style={st.action}>
         <Ionicons
           name={liked ? 'heart' : 'heart-outline'}
           size={size + 1}
@@ -130,7 +130,7 @@ function Action({
   filled?: boolean;
 }) {
   return (
-    <Pressable onPress={onPress} hitSlop={10} style={st.action} disabled={!onPress}>
+    <Pressable onPress={onPress} hitSlop={14} style={st.action} disabled={!onPress}>
       <Feather
         name={icon}
         size={size}
@@ -148,6 +148,6 @@ function Action({
 
 const st = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 26, marginTop: 12 },
-  action: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  action: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, paddingVertical: 4 },
   count: { fontFamily: font.mono, fontSize: 10, color: color.dim, fontVariant: ['tabular-nums'] },
 });

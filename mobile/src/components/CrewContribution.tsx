@@ -48,7 +48,7 @@ export function CrewContribution({
       </MonoLabel>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         <Pressable onPress={() => onChange(null)} style={[st.chip, value === null && st.chipOn]}>
-          <Text style={[st.chipText, value === null && { color: color.signal }]}>NO CREW</Text>
+          <Text style={[st.chipText, value === null && { color: color.white }]}>NO CREW</Text>
         </Pressable>
         {crews.map((c) => (
           <Pressable
@@ -56,7 +56,7 @@ export function CrewContribution({
             onPress={() => onChange(c.id)}
             style={[st.chip, value === c.id && st.chipOn]}
           >
-            <Text style={[st.chipText, value === c.id && { color: color.signal }]}>
+            <Text style={[st.chipText, value === c.id && { color: color.white }]}>
               {c.name.toUpperCase()}
             </Text>
           </Pressable>
@@ -80,7 +80,7 @@ const st = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  chipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  chipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   chipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
   note: { fontFamily: font.body, fontSize: 11.5, color: color.dim, marginTop: 9, lineHeight: 17 },
 });

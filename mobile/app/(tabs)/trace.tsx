@@ -158,7 +158,7 @@ export default function TraceMap() {
               source="trace"
               source-layer="trace"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': color.signal, 'line-width': 6, 'line-opacity': 0.07 }}
+              paint={{ 'line-color': color.trace, 'line-width': 6, 'line-opacity': 0.07 }}
             />
             <Layer
               type="line"
@@ -166,7 +166,7 @@ export default function TraceMap() {
               source="trace"
               source-layer="trace"
               layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-              paint={{ 'line-color': '#FFDE47', 'line-width': 2.5, 'line-opacity': 0.18 }}
+              paint={{ 'line-color': color.trace, 'line-width': 2.5, 'line-opacity': 0.18 }}
             />
             <Layer
               type="line"

@@ -231,10 +231,10 @@ function PickRow({
       {({ pressed }) => (
         <View style={[st.pickRow, pressed && { backgroundColor: color.slate2 }]}>
           <View style={{ flex: 1 }}>
-            <Text style={[st.pickLabel, on && { color: color.signal }]}>{label}</Text>
+            <Text style={[st.pickLabel, on && { color: color.white }]}>{label}</Text>
             {sub ? <Text style={st.pickSub}>{sub}</Text> : null}
           </View>
-          {on && <Feather name="check" size={17} color={color.signal} />}
+          {on && <Feather name="check" size={17} color={color.white} />}
         </View>
       )}
     </Pressable>

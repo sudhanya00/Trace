@@ -131,7 +131,7 @@ const st = StyleSheet.create({
   },
   rankTop: { color: color.white },
   name: { fontFamily: font.bodySemi, fontSize: 14, color: color.white },
-  mineDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: color.signal },
+  mineDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: color.white },
   value: {
     fontFamily: font.displaySemi,
     fontSize: 19,
