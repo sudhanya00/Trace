@@ -98,7 +98,7 @@ export function RidesSection({ profileId }: { profileId?: string } = {}) {
             <Pressable key={row.id} onPress={() => router.push(`/ride/${row.id}`)}>
               {({ pressed }) => (
                 <View style={[st.row, pressed && { backgroundColor: color.slate }]}>
-                  <TrackThumb segments={thumbs.get(row.id) ?? []} />
+                  <TrackThumb id={row.id} segments={thumbs.get(row.id) ?? []} />
                   <View style={{ flex: 1 }}>
                     <Text style={st.rowTitle}>
                       {row.title ??

@@ -57,7 +57,7 @@ export function PostCard({
                   onPress={() => router.push(`/ride/${post.ride_id}`)}
                   style={st.rideCard}
                 >
-                  <TrackThumb segments={segments} />
+                  <TrackThumb id={post.ride_id ?? undefined} segments={segments} />
                   <View style={{ flex: 1 }}>
                     <Text style={st.rideKm} allowFontScaling={false}>
                       {Number(post.ride_distance_km ?? 0).toFixed(1)}
