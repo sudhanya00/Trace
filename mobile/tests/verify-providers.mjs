@@ -117,14 +117,45 @@ if (GOOGLE_KEY) {
         typeof r?.distanceMeters === 'number' && !!r?.duration,
         r ? `${(r.distanceMeters / 1000).toFixed(1)} km, ${r.duration}` : 'missing'
       );
+      // Jammu→Patnitop is NH44 with no competitive rival, so it correctly
+      // returns ONE route. Alternatives are a property of the road network,
+      // not of the request — so they're asserted where they actually exist.
       check(
-        'routes: alternatives offered between two points',
-        (body.routes?.length ?? 0) > 1,
-        `${body.routes?.length ?? 0} option(s)`
+        'routes: single road returns a single option',
+        (body.routes?.length ?? 0) === 1,
+        `${body.routes?.length ?? 0} option(s) — one road, as expected in the hills`
       );
     }
   } catch (e) {
     check('routes api', false, e.message);
+  }
+
+  // Alternatives, proven where the network actually offers them.
+  try {
+    const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_KEY,
+        'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters',
+      },
+      body: JSON.stringify({
+        origin: { location: { latLng: { latitude: 28.6139, longitude: 77.209 } } }, // Delhi
+        destination: { location: { latLng: { latitude: 26.9124, longitude: 75.7873 } } }, // Jaipur
+        travelMode: 'DRIVE',
+        computeAlternativeRoutes: true,
+        units: 'METRIC',
+      }),
+    });
+    const body = await res.json();
+    const opts = body.routes?.length ?? 0;
+    check(
+      'routes: alternatives returned where roads diverge',
+      res.ok && opts > 1,
+      `${opts} option(s) Delhi→Jaipur`
+    );
+  } catch (e) {
+    check('routes: alternatives', false, e.message);
   }
 }
 
