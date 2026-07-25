@@ -1,6 +1,7 @@
 import { router, useFocusEffect } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useCallback, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PushButton } from '../../src/components/PushButton';
 import { Card, Field, MonoLabel } from '../../src/components/ui';
@@ -45,7 +46,7 @@ export default function Crews() {
       });
       router.push(`/crew/${crew.id}`);
     } catch (e) {
-      Alert.alert('Could not create crew', (e as Error).message);
+      showAlert('Could not create crew', (e as Error).message);
     } finally {
       setBusy(false);
     }

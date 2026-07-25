@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { PushButton } from '../../src/components/PushButton';
 import { Field, MonoLabel } from '../../src/components/ui';
@@ -50,7 +51,7 @@ export default function ManualRide() {
       });
       router.back();
     } catch (e) {
-      Alert.alert('Could not save', (e as Error).message);
+      showAlert('Could not save', (e as Error).message);
       setBusy(false);
     }
   };

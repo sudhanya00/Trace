@@ -1,10 +1,10 @@
 import { Camera, GeoJSONSource, Layer, Map as MapLibreMap } from '@maplibre/maplibre-react-native';
+import { showAlert } from '../../src/components/Dialog';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -120,7 +120,7 @@ export default function PlanRoute() {
       });
       router.replace(`/route/${route.id}`);
     } catch (e) {
-      Alert.alert('Could not save the route', (e as Error).message);
+      showAlert('Could not save the route', (e as Error).message);
       setSaving(false);
     }
   };

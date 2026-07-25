@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
+import { showAlert } from '../src/components/Dialog';
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { Badges } from '../src/components/Badges';
 import { PushButton } from '../src/components/PushButton';
@@ -24,7 +25,7 @@ export default function ProfileScreen() {
       await updateProfile(profile.id, { visibility: pub ? 'public' : 'private' });
       await refreshProfile();
     } catch (e) {
-      Alert.alert('Could not update visibility', (e as Error).message);
+      showAlert('Could not update visibility', (e as Error).message);
     }
   };
 
@@ -37,7 +38,7 @@ export default function ProfileScreen() {
       });
       await refreshProfile();
     } catch (e) {
-      Alert.alert('Could not save', (e as Error).message);
+      showAlert('Could not save', (e as Error).message);
     } finally {
       setBusy(false);
     }

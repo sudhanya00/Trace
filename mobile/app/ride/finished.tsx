@@ -1,9 +1,9 @@
 import * as ImagePicker from 'expo-image-picker';
+import { showAlert } from '../../src/components/Dialog';
 import * as Sharing from 'expo-sharing';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -170,7 +170,7 @@ export default function RideFinished() {
         dialogTitle: 'Share your ride',
       });
     } catch (e) {
-      Alert.alert('Could not share', (e as Error).message);
+      showAlert('Could not share', (e as Error).message);
     }
   };
 

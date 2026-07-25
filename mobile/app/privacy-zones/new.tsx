@@ -4,10 +4,11 @@ import {
   Layer,
   Map as MapLibreMap,
 } from '@maplibre/maplibre-react-native';
+import { showAlert } from '../../src/components/Dialog';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PushButton } from '../../src/components/PushButton';
 import { Field, MonoLabel } from '../../src/components/ui';
@@ -75,7 +76,7 @@ export default function NewZone() {
       await createPrivacyZone(session.user.id, label.trim() || null, center[0], center[1], radius);
       router.back();
     } catch (e) {
-      Alert.alert('Could not save zone', (e as Error).message);
+      showAlert('Could not save zone', (e as Error).message);
       setBusy(false);
     }
   };

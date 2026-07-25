@@ -1,9 +1,9 @@
 import { File, Paths } from 'expo-file-system';
+import { showAlert } from '../../src/components/Dialog';
 import * as Sharing from 'expo-sharing';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -101,7 +101,7 @@ export default function RouteDetail() {
       setComment('');
       loadTalk();
     } catch (e) {
-      Alert.alert('Could not post', (e as Error).message);
+      showAlert('Could not post', (e as Error).message);
     }
   };
 
@@ -113,14 +113,14 @@ export default function RouteDetail() {
       setReporting(false);
       loadTalk();
     } catch (e) {
-      Alert.alert('Could not report', (e as Error).message);
+      showAlert('Could not report', (e as Error).message);
     }
   };
 
   const onCommentLongPress = (c: ThreadComment) => {
     if (!session) return;
     if (c.profile_id === session.user.id) {
-      Alert.alert('Delete your comment?', undefined, [
+      showAlert('Delete your comment?', undefined, [
         { text: 'Keep it', style: 'cancel' },
         {
           text: 'Delete',
@@ -132,7 +132,7 @@ export default function RouteDetail() {
         },
       ]);
     } else {
-      Alert.alert('Flag this comment?', 'Sends it to us for review.', [
+      showAlert('Flag this comment?', 'Sends it to us for review.', [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Flag',
@@ -159,7 +159,7 @@ export default function RouteDetail() {
         dialogTitle: 'Navigate with…',
       });
     } catch (e) {
-      Alert.alert('Could not export', (e as Error).message);
+      showAlert('Could not export', (e as Error).message);
     }
   };
 

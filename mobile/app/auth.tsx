@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
+import { showAlert } from '../src/components/Dialog';
 import { useRef, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -46,7 +46,7 @@ export default function Auth() {
   const sendCode = async () => {
     const normalized = normalizePhone(phone);
     if (!normalized) {
-      Alert.alert('Check the number', 'Ten digits, or the full number with country code.');
+      showAlert('Check the number', 'Ten digits, or the full number with country code.');
       return;
     }
     setBusy(true);
@@ -57,7 +57,7 @@ export default function Auth() {
       setCode('');
       setStep('code');
     } catch (e) {
-      Alert.alert('Could not send the code', (e as Error).message);
+      showAlert('Could not send the code', (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -75,7 +75,7 @@ export default function Auth() {
       if (error) throw error;
       router.replace('/');
     } catch (e) {
-      Alert.alert('Wrong code?', (e as Error).message);
+      showAlert('Wrong code?', (e as Error).message);
       setBusy(false);
     }
   };
@@ -93,12 +93,12 @@ export default function Auth() {
         if (error) throw error;
         if (data.session) router.replace('/');
         else {
-          Alert.alert('Check your email', 'Confirm your address, then sign in.');
+          showAlert('Check your email', 'Confirm your address, then sign in.');
           setEmailMode('in');
         }
       }
     } catch (e) {
-      Alert.alert('Sign in failed', (e as Error).message);
+      showAlert('Sign in failed', (e as Error).message);
     } finally {
       setBusy(false);
     }

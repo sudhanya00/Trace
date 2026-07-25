@@ -1,10 +1,10 @@
 import * as ImageManipulator from 'expo-image-manipulator';
+import { showAlert } from '../../src/components/Dialog';
 import * as ImagePicker from 'expo-image-picker';
 import { File } from 'expo-file-system';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -91,7 +91,7 @@ export default function ShareRoute() {
       }
       router.replace(`/route/${route.id}`);
     } catch (e) {
-      Alert.alert('Could not share', (e as Error).message);
+      showAlert('Could not share', (e as Error).message);
       setBusy(false);
     }
   };

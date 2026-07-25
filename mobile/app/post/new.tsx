@@ -1,8 +1,8 @@
 import { router } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -44,14 +44,14 @@ export default function NewPost() {
       await createPost(session.user.id, trimmed);
       router.back();
     } catch (e) {
-      Alert.alert('Could not post', (e as Error).message);
+      showAlert('Could not post', (e as Error).message);
       setBusy(false);
     }
   };
 
   const discard = () => {
     if (!trimmed) return router.back();
-    Alert.alert('Discard this?', 'What you wrote will be lost.', [
+    showAlert('Discard this?', 'What you wrote will be lost.', [
       { text: 'Keep writing', style: 'cancel' },
       { text: 'Discard', style: 'destructive', onPress: () => router.back() },
     ]);

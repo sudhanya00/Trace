@@ -1,10 +1,11 @@
 import * as Battery from 'expo-battery';
+import { showAlert } from '../../src/components/Dialog';
 import * as Device from 'expo-device';
 import * as Sharing from 'expo-sharing';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { captureRef } from 'react-native-view-shot';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CrewContribution } from '../../src/components/CrewContribution';
 import { PushButton } from '../../src/components/PushButton';
@@ -121,13 +122,13 @@ export default function RideDetail() {
       await updateRide(detail.ride.id, { title: title.trim() || null, note: note.trim() || null });
       router.back();
     } catch (e) {
-      Alert.alert('Could not save', (e as Error).message);
+      showAlert('Could not save', (e as Error).message);
       setBusy(false);
     }
   };
 
   const report = () => {
-    Alert.alert(
+    showAlert(
       'Report bad recording?',
       'Sends us the point log for this ride with your device model — nothing else. It goes straight into fixing GPS.',
       [
@@ -158,9 +159,9 @@ export default function RideDetail() {
                   points: localPoints.slice(0, 5000),
                 }
               );
-              Alert.alert('Report sent', 'Thank you — this is exactly what tunes the recorder.');
+              showAlert('Report sent', 'Thank you — this is exactly what tunes the recorder.');
             } catch (e) {
-              Alert.alert('Could not send', (e as Error).message);
+              showAlert('Could not send', (e as Error).message);
             }
           },
         },
@@ -250,7 +251,7 @@ export default function RideDetail() {
                     await setRideCrew(detail.ride.id, c);
                   } catch (e) {
                     setCrewId(prev);
-                    Alert.alert('Could not change the crew', (e as Error).message);
+                    showAlert('Could not change the crew', (e as Error).message);
                   }
                 }}
                 distanceKm={Number((detail.ride as Ride).distance_km)}
@@ -272,7 +273,7 @@ export default function RideDetail() {
                   await shareRideAsPost(session.user.id, detail.ride.id);
                   setShared(true);
                 } catch (e) {
-                  Alert.alert('Could not share', (e as Error).message);
+                  showAlert('Could not share', (e as Error).message);
                 } finally {
                   setBusy(false);
                 }
@@ -315,7 +316,7 @@ export default function RideDetail() {
                   dialogTitle: 'Share your ride',
                 });
               } catch (e) {
-                Alert.alert('Could not share', (e as Error).message);
+                showAlert('Could not share', (e as Error).message);
               }
             }}
             style={{ marginTop: 12 }}
@@ -332,7 +333,7 @@ export default function RideDetail() {
         {isServer && (
           <Pressable
             onPress={() =>
-              Alert.alert(
+              showAlert(
                 'Delete this ride?',
                 'The track, its distance and any crew contribution go with it. This cannot be undone.',
                 [
@@ -345,7 +346,7 @@ export default function RideDetail() {
                         await deleteRide(detail.ride.id);
                         router.back();
                       } catch (e) {
-                        Alert.alert('Could not delete', (e as Error).message);
+                        showAlert('Could not delete', (e as Error).message);
                       }
                     },
                   },

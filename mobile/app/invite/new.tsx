@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -113,7 +113,7 @@ export default function NewInvite() {
       });
       router.back();
     } catch (e) {
-      Alert.alert('Could not post', (e as Error).message);
+      showAlert('Could not post', (e as Error).message);
       setBusy(false);
     }
   };

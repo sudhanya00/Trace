@@ -1,10 +1,10 @@
 import { router, useFocusEffect } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import * as Location from 'expo-location';
 import * as Device from 'expo-device';
 import { usePostHog } from 'posthog-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   Animated,
   Easing,
   Modal,
@@ -195,7 +195,7 @@ export default function Record() {
     setExplainerOpen(false);
     const fg = await Location.requestForegroundPermissionsAsync();
     if (!fg.granted) {
-      Alert.alert('No location, no ride', 'TRACE cannot record a ride without location access.');
+      showAlert('No location, no ride', 'TRACE cannot record a ride without location access.');
       return;
     }
     const bg = await Location.requestBackgroundPermissionsAsync();
@@ -214,7 +214,7 @@ export default function Record() {
       // comparison afterwards ever would.
       offerToLink(ride.id);
     } catch (e) {
-      Alert.alert('Could not start', (e as Error).message);
+      showAlert('Could not start', (e as Error).message);
     }
   };
 
@@ -230,7 +230,7 @@ export default function Record() {
 
     if (planned.length === 1) {
       const only = planned[0];
-      Alert.alert(
+      showAlert(
         'Riding the planned one?',
         `“${only.title}”${only.meetup ? ` — ${only.meetup}` : ''}. Link this recording to it, and the crew sees you actually rode it.`,
         [
@@ -240,7 +240,7 @@ export default function Record() {
       );
       return;
     }
-    Alert.alert(
+    showAlert(
       'Which ride is this?',
       'You have more than one planned around now.',
       [
@@ -257,7 +257,7 @@ export default function Record() {
     if (phase.kind !== 'recording') return;
     const s = rideState(phase.ride.id);
     const km = s ? (s.distance_m / 1000).toFixed(1) : '0.0';
-    Alert.alert(
+    showAlert(
       'Cancel this ride?',
       `${km} km recorded so far will be deleted and cannot be recovered. To keep it instead, finish the ride.`,
       [
@@ -491,15 +491,7 @@ export default function Record() {
         </View>
       )}
 
-      {/* §12b: recording is in beta — say so, plainly */}
-      {phase.kind === 'idle' && (
-        <View style={st.betaRow}>
-          <Text style={st.betaText}>
-            Recording is in beta — tracks may have gaps. Keep your odometer as backup.
-          </Text>
-        </View>
-      )}
-
+      
       {/* live share opt-in: followers-only, off by default */}
       {phase.kind === 'idle' && (
         <Pressable
@@ -543,7 +535,7 @@ export default function Record() {
       {linkedRide && phase.kind === 'recording' && (
         <Pressable
           onPress={() =>
-            Alert.alert('Unlink this ride?', `It stops counting as “${linkedRide.title}”.`, [
+            showAlert('Unlink this ride?', `It stops counting as “${linkedRide.title}”.`, [
               { text: 'Keep it linked', style: 'cancel' },
               {
                 text: 'Unlink',
@@ -835,8 +827,6 @@ const st = StyleSheet.create({
   interruptedBody: { fontFamily: font.body, fontSize: 12, color: color.steel, lineHeight: 17, marginTop: 6 },
   oemLink: { fontFamily: font.bodyMedium, fontSize: 12, color: color.amber, lineHeight: 17 },
 
-  betaRow: { marginHorizontal: layout.screenPadding, marginTop: 16 },
-  betaText: { fontFamily: font.body, fontSize: 11, color: color.dim, lineHeight: 16 },
   liveShareRow: {
     flexDirection: 'row',
     alignItems: 'center',

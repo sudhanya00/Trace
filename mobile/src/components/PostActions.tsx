@@ -1,7 +1,8 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
+import { showAlert } from './Dialog';
 import * as Sharing from 'expo-sharing';
 import { useState } from 'react';
-import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '../lib/auth';
 import { tick } from '../lib/haptics';
@@ -51,7 +52,7 @@ export function PostActions({
 
   const doRepost = () => {
     if (!session || reposted) return;
-    Alert.alert('Repost this?', `It goes out to your followers under @${post.handle}'s name.`, [
+    showAlert('Repost this?', `It goes out to your followers under @${post.handle}'s name.`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Repost',
@@ -61,7 +62,7 @@ export function PostActions({
             setReposted(true);
             onChanged?.();
           } catch (e) {
-            Alert.alert('Could not repost', (e as Error).message);
+            showAlert('Could not repost', (e as Error).message);
           }
         },
       },

@@ -176,7 +176,7 @@ export default function Riders() {
 
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.void },
-  content: { paddingHorizontal: layout.screenPadding, paddingTop: 64, paddingBottom: 110 },
+  content: { paddingHorizontal: layout.screenPadding, paddingTop: 64, paddingBottom: 132 },
   h1: {
     fontFamily: font.display,
     fontSize: 41,

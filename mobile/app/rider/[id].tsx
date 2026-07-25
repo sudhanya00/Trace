@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '../../src/components/Avatar';
 import { Badges } from '../../src/components/Badges';
@@ -117,7 +118,7 @@ export default function RiderDetail() {
       const result = await follow(session.user.id, id);
       setState(result);
     } catch (e) {
-      Alert.alert('Could not follow', (e as Error).message);
+      showAlert('Could not follow', (e as Error).message);
     }
   };
 

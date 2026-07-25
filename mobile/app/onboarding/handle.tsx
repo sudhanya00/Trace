@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
 
 import { PushButton } from '../../src/components/PushButton';
 import { Field, MonoLabel } from '../../src/components/ui';
@@ -42,7 +43,7 @@ export default function Handle() {
       }
       const msg =
         err.code === '23505' ? 'That handle is taken — try another.' : (err.message ?? 'Try again.');
-      Alert.alert('Could not save handle', msg);
+      showAlert('Could not save handle', msg);
     } finally {
       setBusy(false);
     }

@@ -1,7 +1,8 @@
 import { Feather } from '@expo/vector-icons';
+import { showAlert } from '../../../src/components/Dialog';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '../../../src/components/Avatar';
 import { InviteCard } from '../../../src/components/InviteCard';
@@ -56,7 +57,7 @@ export default function CrewAbout() {
   };
 
   const onDelete = () => {
-    Alert.alert(
+    showAlert(
       `Delete ${crew?.name}?`,
       'The roster, the chat and every planned ride go with it. Contributed rides stay with their riders. This cannot be undone.',
       [
@@ -70,7 +71,7 @@ export default function CrewAbout() {
               router.dismissAll();
               router.replace('/crews');
             } catch (e) {
-              Alert.alert('Could not delete', (e as Error).message);
+              showAlert('Could not delete', (e as Error).message);
             }
           },
         },

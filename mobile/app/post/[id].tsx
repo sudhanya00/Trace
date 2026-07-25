@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useCallback, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -60,7 +60,7 @@ export default function PostDetail() {
       setReply('');
       load();
     } catch (e) {
-      Alert.alert('Could not reply', (e as Error).message);
+      showAlert('Could not reply', (e as Error).message);
     }
   };
 
@@ -69,7 +69,7 @@ export default function PostDetail() {
   const onLongPressPost = () => {
     if (!session || !post) return;
     if (post.profile_id === session.user.id) {
-      Alert.alert('Delete this post?', undefined, [
+      showAlert('Delete this post?', undefined, [
         { text: 'Keep it', style: 'cancel' },
         {
           text: 'Delete',
@@ -81,7 +81,7 @@ export default function PostDetail() {
         },
       ]);
     } else {
-      Alert.alert('Flag this post?', 'Sends it to us for review.', [
+      showAlert('Flag this post?', 'Sends it to us for review.', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Flag', onPress: () => flagPost(session.user.id, post.id).catch(() => {}) },
       ]);
@@ -90,7 +90,7 @@ export default function PostDetail() {
 
   const onLongPressComment = (c: PostComment) => {
     if (!session || c.profile_id !== session.user.id) return;
-    Alert.alert('Delete your reply?', undefined, [
+    showAlert('Delete your reply?', undefined, [
       { text: 'Keep it', style: 'cancel' },
       {
         text: 'Delete',

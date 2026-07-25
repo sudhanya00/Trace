@@ -161,7 +161,7 @@ const st = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 2,
   },
-  list: { paddingBottom: 110 },
+  list: { paddingBottom: 132 },
   suggestWrap: {
     paddingLeft: layout.screenPadding,
     paddingVertical: 12,

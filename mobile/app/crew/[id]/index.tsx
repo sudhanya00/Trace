@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { showAlert } from '../../../src/components/Dialog';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -133,7 +133,7 @@ export default function CrewRoom() {
       await sendCrewMessage(session.user.id, id, body);
     } catch (e) {
       setDraft(body);
-      Alert.alert('Could not send', (e as Error).message);
+      showAlert('Could not send', (e as Error).message);
     }
   };
 
@@ -143,7 +143,7 @@ export default function CrewRoom() {
       await joinCrew(session.user.id, id);
       load();
     } catch (e) {
-      Alert.alert('Could not join', (e as Error).message);
+      showAlert('Could not join', (e as Error).message);
     }
   };
 
@@ -155,7 +155,7 @@ export default function CrewRoom() {
 
   const onLeave = () => {
     if (!session || !id) return;
-    Alert.alert('Leave this crew?', undefined, [
+    showAlert('Leave this crew?', undefined, [
       { text: 'Stay', style: 'cancel' },
       {
         text: 'Leave',

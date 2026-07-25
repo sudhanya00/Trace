@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { BikeForm } from '../../src/components/BikeForm';
 import { PushButton } from '../../src/components/PushButton';
@@ -30,7 +31,7 @@ export default function BikeDetail() {
       await updateBike(bike.id, input);
       router.back();
     } catch (e) {
-      Alert.alert('Could not save', (e as Error).message);
+      showAlert('Could not save', (e as Error).message);
       setBusy(false);
     }
   };
@@ -40,7 +41,7 @@ export default function BikeDetail() {
       const updated = await updateBike(bike.id, { is_active: !bike.is_active });
       setBike(updated);
     } catch (e) {
-      Alert.alert('Could not update', (e as Error).message);
+      showAlert('Could not update', (e as Error).message);
     }
   };
 

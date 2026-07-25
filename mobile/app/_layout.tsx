@@ -16,6 +16,7 @@ import { PostHogProvider } from 'posthog-react-native';
 import { ReactNode, useEffect } from 'react';
 import { AppState, View } from 'react-native';
 
+import { DialogHost } from '../src/components/Dialog';
 import { SessionProvider, useAuth } from '../src/lib/auth';
 import { registerPushToken } from '../src/lib/push';
 import { supabase } from '../src/lib/supabase';
@@ -108,6 +109,9 @@ function RootLayout() {
         <PushWiring />
         <View style={{ flex: 1, backgroundColor: color.void }}>
           <StatusBar style="light" />
+          {/* Every confirmation in the app draws through here, so none of them
+              arrive wearing the operating system's clothes. */}
+          <DialogHost />
           <Stack
             screenOptions={{
               headerShown: false,

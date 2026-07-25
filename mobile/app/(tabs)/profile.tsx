@@ -1,10 +1,11 @@
 import { Feather } from '@expo/vector-icons';
+import { showAlert } from '../../src/components/Dialog';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { File } from 'expo-file-system';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '../../src/components/Avatar';
 import { Badges } from '../../src/components/Badges';
@@ -75,7 +76,7 @@ export default function ProfileTab() {
       await updateProfile(session.user.id, { avatar_url: url });
       await refreshProfile();
     } catch (e) {
-      Alert.alert('Could not update your photo', (e as Error).message);
+      showAlert('Could not update your photo', (e as Error).message);
     } finally {
       setUploading(false);
     }
@@ -189,7 +190,7 @@ function Stat({
 
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.void },
-  content: { paddingHorizontal: layout.screenPadding, paddingTop: 60, paddingBottom: 110 },
+  content: { paddingHorizontal: layout.screenPadding, paddingTop: 60, paddingBottom: 132 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   iconBtn: { padding: 8 },
   identity: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 16 },
