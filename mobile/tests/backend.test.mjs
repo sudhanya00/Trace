@@ -1163,6 +1163,41 @@ describe('route standardization', () => {
     assert.ok(Number(rowB.route_distance_km) > 2, 'and its distance');
   });
 
+  it('a meetup can carry a real point, and never half of one', async () => {
+    const routeId = await adhocRoute(asha, ashaId, 'test: meetup point ride');
+    const { error } = await asha.from('ride_invites').insert({
+      created_by: ashaId,
+      route_id: routeId,
+      title: 'test: meetup point ride',
+      meetup: 'City Chowk, six sharp',
+      meetup_lat: 32.7266,
+      meetup_lng: 74.857,
+      meetup_place_id: 'ChIJtest_place_id',
+      starts_at: new Date(Date.now() + 86400e3).toISOString(),
+    });
+    assert.equal(error, null, 'a located meetup stores fine');
+
+    // Half a coordinate would put the map in the Gulf of Guinea.
+    const half = await asha.from('ride_invites').insert({
+      created_by: ashaId,
+      route_id: routeId,
+      title: 'test: half a coordinate',
+      meetup_lat: 32.7266,
+      starts_at: new Date(Date.now() + 86400e3).toISOString(),
+    });
+    assert.ok(half.error, 'lat without lng is refused');
+
+    // And a meetup with no point at all is still perfectly legal.
+    const wordsOnly = await asha.from('ride_invites').insert({
+      created_by: ashaId,
+      route_id: routeId,
+      title: 'test: words only meetup',
+      meetup: 'the usual place',
+      starts_at: new Date(Date.now() + 86400e3).toISOString(),
+    });
+    assert.equal(wordsOnly.error, null, 'words-only meetups still work');
+  });
+
   it('the adhoc sweep spares routes with an upcoming ride', async () => {
     const keep = await adhocRoute(asha, ashaId, 'test: upcoming adhoc');
     await asha.from('ride_invites').insert({

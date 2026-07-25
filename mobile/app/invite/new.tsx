@@ -13,6 +13,7 @@ import {
 
 import { Feather } from '@expo/vector-icons';
 
+import { LocationPicker, PickedPlace } from '../../src/components/LocationPicker';
 import { PushButton } from '../../src/components/PushButton';
 import { Sheet } from '../../src/components/Sheet';
 import { ChipSelect, Field, MonoLabel, YesNo } from '../../src/components/ui';
@@ -29,7 +30,7 @@ import {
   pickableRoutes,
   Route,
 } from '../../src/lib/db';
-import { color, font, layout } from '../../src/theme/tokens';
+import { accent, color, font, layout } from '../../src/theme/tokens';
 
 const BIKE_CHOICES: (BikeType | 'any')[] = [
   'any',
@@ -61,6 +62,8 @@ export default function NewInvite() {
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   const [pickingRoute, setPickingRoute] = useState(false);
+  const [pickingPlace, setPickingPlace] = useState(false);
+  const [meetPoint, setMeetPoint] = useState<PickedPlace | null>(null);
   const [route, setRoute] = useState<Route | null>(null);
   const [routes, setRoutes] = useState<{ mine: Route[]; curated: Route[] }>({
     mine: [],
@@ -98,6 +101,9 @@ export default function NewInvite() {
         route_id: route?.id ?? null,
         title: title.trim(),
         meetup: meetup.trim() || null,
+        meetup_point: meetPoint
+          ? { lat: meetPoint.lat, lng: meetPoint.lng, place_id: meetPoint.place_id }
+          : null,
         region: route ? route.region : scope ? null : region.trim() || null,
         starts_at: startsAt,
         difficulty: route ? route.difficulty : difficulty,
@@ -160,6 +166,9 @@ export default function NewInvite() {
           <Field label="Date" value={date} onChangeText={setDate} placeholder="2026-07-20" style={{ flex: 1 }} />
           <Field label="Time" value={time} onChangeText={setTime} placeholder="06:00" style={{ flex: 1 }} />
         </View>
+        {/* The words are still the words a rider reads — "kickstands up at
+            six" isn't a coordinate. The point underneath is what makes it
+            navigable. */}
         <Field
           label="Meetup"
           value={meetup}
@@ -168,6 +177,19 @@ export default function NewInvite() {
           autoCapitalize="sentences"
           style={{ marginTop: 16 }}
         />
+        <Pressable onPress={() => setPickingPlace(true)} style={st.placeRow}>
+          <Feather name="map-pin" size={15} color={meetPoint ? accent.trace : color.steel} />
+          <Text style={[st.placeText, meetPoint && { color: color.white }]} numberOfLines={1}>
+            {meetPoint ? meetPoint.label : 'Pin it on the map'}
+          </Text>
+          {meetPoint ? (
+            <Pressable onPress={() => setMeetPoint(null)} hitSlop={10}>
+              <Feather name="x" size={15} color={color.steel} />
+            </Pressable>
+          ) : (
+            <Feather name="chevron-right" size={15} color={color.dim} />
+          )}
+        </Pressable>
 
         {/* A chip row grows with the crew count and eats the screen at 50 of
             them. One row, one sheet, scrolls forever. */}
@@ -253,6 +275,19 @@ export default function NewInvite() {
           <Text style={st.cancelText}>Cancel</Text>
         </Pressable>
       </ScrollView>
+
+      <LocationPicker
+        visible={pickingPlace}
+        onClose={() => setPickingPlace(false)}
+        title="Where do you meet?"
+        initial={meetPoint}
+        onPick={(p) => {
+          setMeetPoint(p);
+          // A blank meetup line gets the place's name; anything the rider
+          // already wrote is theirs and stays untouched.
+          if (!meetup.trim()) setMeetup(p.label);
+        }}
+      />
 
       <Sheet
         visible={pickingRoute}
@@ -389,6 +424,19 @@ const st = StyleSheet.create({
   },
   pickerValue: { fontFamily: font.body, fontSize: 15, color: color.white },
   pickerSub: { fontFamily: font.body, fontSize: 11.5, color: color.steel, marginTop: 3 },
+  placeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 10,
+    backgroundColor: color.slate,
+  },
+  placeText: { flex: 1, fontFamily: font.body, fontSize: 13.5, color: color.steel },
   readonly: {
     fontFamily: font.body,
     fontSize: 15,

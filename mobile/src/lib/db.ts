@@ -807,6 +807,8 @@ export async function createInvite(
     route_id: string | null; // null = they just named it
     title: string;
     meetup: string | null;
+    /** The navigable point behind the meetup line, when the rider set one. */
+    meetup_point: { lat: number; lng: number; place_id: string | null } | null;
     region: string | null;
     starts_at: Date;
     bike_category: BikeType | 'any' | null;
@@ -830,6 +832,9 @@ export async function createInvite(
     route_id: routeId,
     title: input.title,
     meetup: input.meetup,
+    meetup_lat: input.meetup_point?.lat ?? null,
+    meetup_lng: input.meetup_point?.lng ?? null,
+    meetup_place_id: input.meetup_point?.place_id ?? null,
     region: input.region,
     starts_at: input.starts_at.toISOString(),
     bike_category: input.bike_category,
