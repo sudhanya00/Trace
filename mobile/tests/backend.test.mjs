@@ -1278,6 +1278,169 @@ describe('route standardization', () => {
   });
 });
 
+describe('a planned ride meets its recording', () => {
+  let inviteId;
+  let routeId;
+
+  after(async () => {
+    await asha.from('rides').delete().like('title', 'test:%');
+    await asha.from('ride_invites').delete().like('title', 'test:%');
+    await asha.from('routes').delete().like('name', 'test:%');
+  });
+
+  it('a ride can be attached to a plan, and shows who actually rode', async () => {
+    routeId = await adhocRoute(asha, ashaId, 'test: sunday route');
+    const { data: inv } = await asha
+      .from('ride_invites')
+      .insert({
+        created_by: ashaId,
+        route_id: routeId,
+        title: 'test: sunday run',
+        starts_at: new Date(Date.now() + 3600e3).toISOString(),
+      })
+      .select('id')
+      .single();
+    inviteId = inv.id;
+    await asha.from('invite_rsvps').insert({ invite_id: inviteId, profile_id: ashaId });
+
+    // It's within the window, so the recorder would offer it.
+    const upcoming = await asha.rpc('my_upcoming_rides');
+    assert.ok(
+      upcoming.data.some((r) => r.id === inviteId),
+      'the planned ride is offered when recording starts'
+    );
+
+    // Before anyone rides: RSVP'd, but no ride to show for it.
+    const before = await asha.rpc('invite_riders', { p_invite_id: inviteId });
+    const meBefore = before.data.find((r) => r.profile_id === ashaId);
+    assert.equal(meBefore.rsvpd, true);
+    assert.equal(meBefore.ride_id, null, 'intent recorded, nothing ridden yet');
+
+    const rideId = crypto.randomUUID();
+    const { error } = await asha.from('rides').insert({
+      id: rideId,
+      profile_id: ashaId,
+      planned_ride_id: inviteId,
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      title: 'test: the sunday run itself',
+    });
+    assert.equal(error, null, 'a ride attaches to a plan');
+
+    const after = await asha.rpc('invite_riders', { p_invite_id: inviteId });
+    const meAfter = after.data.find((r) => r.profile_id === ashaId);
+    assert.equal(meAfter.ride_id, rideId, 'and now it shows who actually rode it');
+  });
+
+  it('riding a planned route gives it permanent geometry', async () => {
+    // The point of the whole waypoints-only compromise: a Google-planned
+    // route can't keep its line, but a recorded track is the rider's own
+    // data — so riding it is what makes the geometry storable.
+    const before = await asha.from('routes').select('geom').eq('id', routeId).maybeSingle();
+    assert.equal(before.data.geom, null, 'the planned route starts with no geometry');
+
+    const rideId = crypto.randomUUID();
+    await asha.from('rides').insert({
+      id: rideId,
+      profile_id: ashaId,
+      planned_ride_id: inviteId,
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      title: 'test: backfill ride',
+    });
+    await asha.from('ride_tracks').upsert(
+      {
+        ride_id: rideId,
+        profile_id: ashaId,
+        geom: 'MULTILINESTRING((77.0 31.00, 77.0 31.02))',
+      },
+      { onConflict: 'ride_id' }
+    );
+    // The trigger fires on distance_km, which the track's own trigger sets.
+    const after = await asha
+      .from('routes')
+      .select('geom, geom_provider')
+      .eq('id', routeId)
+      .maybeSingle();
+    assert.ok(after.data.geom, 'the ridden track becomes the route’s geometry');
+    assert.equal(after.data.geom_provider, 'recorded', 'and is marked as the rider’s own');
+  });
+
+  it('a recording with gaps never becomes a route', async () => {
+    // §5: a route is a road others follow. Joining the segments either side of
+    // a dropout would invent tarmac nobody rode, so a broken track is simply
+    // not offered — the next clean ride fills it instead.
+    const brokenRoute = await adhocRoute(asha, ashaId, 'test: gappy route');
+    const { data: inv } = await asha
+      .from('ride_invites')
+      .insert({
+        created_by: ashaId,
+        route_id: brokenRoute,
+        title: 'test: gappy plan',
+        starts_at: new Date(Date.now() + 3600e3).toISOString(),
+      })
+      .select('id')
+      .single();
+
+    const rideId = crypto.randomUUID();
+    await asha.from('rides').insert({
+      id: rideId,
+      profile_id: ashaId,
+      planned_ride_id: inv.id,
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      title: 'test: gappy ride',
+      gap_count: 1,
+    });
+    await asha.from('ride_tracks').upsert(
+      {
+        ride_id: rideId,
+        profile_id: ashaId,
+        // Two segments — the signal dropped in between.
+        geom: 'MULTILINESTRING((77.0 31.00, 77.0 31.01), (77.0 31.02, 77.0 31.03))',
+      },
+      { onConflict: 'ride_id' }
+    );
+
+    const route = await asha.from('routes').select('geom').eq('id', brokenRoute).maybeSingle();
+    assert.equal(route.data.geom, null, 'a track with a dropout is not turned into a road');
+  });
+
+  it('you cannot attach your ride to a crew plan you are not in', async () => {
+    const { data: crew } = await asha
+      .from('crews')
+      .insert({ name: 'test: closed crew', created_by: ashaId })
+      .select('id')
+      .single();
+    const crewRoute = await adhocRoute(asha, ashaId, 'test: closed crew route', {
+      crew_id: crew.id,
+    });
+    const { data: crewInvite } = await asha
+      .from('ride_invites')
+      .insert({
+        created_by: ashaId,
+        crew_id: crew.id,
+        route_id: crewRoute,
+        title: 'test: members only run',
+        starts_at: new Date(Date.now() + 3600e3).toISOString(),
+      })
+      .select('id')
+      .single();
+
+    const forged = await veer.from('rides').insert({
+      id: crypto.randomUUID(),
+      profile_id: veerId,
+      planned_ride_id: crewInvite.id,
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      title: 'test: gatecrash',
+    });
+    assert.ok(forged.error, 'a non-member cannot claim a crew’s planned ride');
+
+    await asha.from('crews').delete().eq('id', crew.id);
+  });
+});
+
 describe('profile stats', () => {
   it('own numbers resolve; a private rider’s do not leak', async () => {
     const mine = await asha.rpc('profile_stats', { p_profile_id: ashaId });

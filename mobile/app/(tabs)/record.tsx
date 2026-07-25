@@ -17,19 +17,22 @@ import {
   View,
 } from 'react-native';
 
+import { Feather } from '@expo/vector-icons';
+
 import { Odometer } from '../../src/components/Odometer';
 import { HoldToConfirm } from '../../src/components/HoldToConfirm';
 import { PushButton } from '../../src/components/PushButton';
 import { TrackBed } from '../../src/components/TrackBed';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
-import { Bike, listBikes } from '../../src/lib/db';
+import { Bike, listBikes, myUpcomingRides, UpcomingRide } from '../../src/lib/db';
 import {
   LocalRide,
   pointsForRide,
   recordingRide,
   rideState,
   RideState,
+  setPendingInvite,
 } from '../../src/lib/localdb';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -78,6 +81,7 @@ export default function Record() {
   // the same trick maps apps use. Stops on blur; costs nothing on other tabs.
   const [warmFix, setWarmFix] = useState<{ accuracy: number | null; ts: number } | null>(null);
   const [liveShare, setLiveShare] = useState(false);
+  const [linkedRide, setLinkedRide] = useState<UpcomingRide | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(LIVE_SHARE_KEY).then((v) => setLiveShare(v === '1')).catch(() => {});
@@ -161,11 +165,47 @@ export default function Record() {
       );
     }
     try {
-      await startRide(bikeId);
+      const ride = await startRide(bikeId);
       refresh();
+      // If a ride they said they'd be on is starting about now, ask once —
+      // the rider knows which ride they're on far better than a track
+      // comparison afterwards ever would.
+      offerToLink(ride.id);
     } catch (e) {
       Alert.alert('Could not start', (e as Error).message);
     }
+  };
+
+  /** One prompt, only when there's something plausible to attach to. */
+  const offerToLink = async (rideId: string) => {
+    const planned = await myUpcomingRides().catch(() => [] as UpcomingRide[]);
+    if (planned.length === 0) return;
+
+    const attach = (invite: UpcomingRide) => {
+      setPendingInvite(rideId, invite.id);
+      setLinkedRide(invite);
+    };
+
+    if (planned.length === 1) {
+      const only = planned[0];
+      Alert.alert(
+        'Riding the planned one?',
+        `“${only.title}”${only.meetup ? ` — ${only.meetup}` : ''}. Link this recording to it, and the crew sees you actually rode it.`,
+        [
+          { text: 'Separate ride', style: 'cancel' },
+          { text: "That's the one", onPress: () => attach(only) },
+        ]
+      );
+      return;
+    }
+    Alert.alert(
+      'Which ride is this?',
+      'You have more than one planned around now.',
+      [
+        ...planned.slice(0, 3).map((p) => ({ text: p.title, onPress: () => attach(p) })),
+        { text: 'Separate ride', style: 'cancel' as const },
+      ]
+    );
   };
 
   const posthog = usePostHog();
@@ -365,6 +405,30 @@ export default function Record() {
         </View>
       )}
 
+      {/* What this recording is for, and a way out if it was the wrong tap. */}
+      {linkedRide && phase.kind === 'recording' && (
+        <Pressable
+          onPress={() =>
+            Alert.alert('Unlink this ride?', `It stops counting as “${linkedRide.title}”.`, [
+              { text: 'Keep it linked', style: 'cancel' },
+              {
+                text: 'Unlink',
+                onPress: () => {
+                  if (phase.kind === 'recording') setPendingInvite(phase.ride.id, null);
+                  setLinkedRide(null);
+                },
+              },
+            ])
+          }
+          style={st.linkedRow}
+        >
+          <Text style={st.linkedText} numberOfLines={1}>
+            Riding <Text style={{ color: color.white }}>{linkedRide.title}</Text>
+          </Text>
+          <Feather name="x" size={13} color={color.steel} />
+        </Pressable>
+      )}
+
       {foregroundOnly && phase.kind === 'recording' && (
         <View style={st.warnRow}>
           <Text style={st.warnText}>
@@ -554,6 +618,20 @@ const st = StyleSheet.create({
   bikeChipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   bikeChipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
 
+  linkedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: layout.screenPadding,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 10,
+    backgroundColor: color.slate,
+  },
+  linkedText: { flex: 1, fontFamily: font.body, fontSize: 12.5, color: color.steel },
   warnRow: { marginHorizontal: layout.screenPadding, marginTop: 14 },
   warnText: { fontFamily: font.body, fontSize: 11, color: color.amber, lineHeight: 16 },
 

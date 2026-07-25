@@ -98,6 +98,11 @@ ldb.execSync(`
     // everything else here — the choice waits in the buffer for sync.
     ldb.execSync('ALTER TABLE local_rides ADD COLUMN pending_crew_id TEXT;');
   }
+  if (!rideCols.some((c) => c.name === 'pending_invite_id')) {
+    // The planned ride this recording belongs to, chosen at the start. Rides
+    // are attributed offline like everything else here — it waits for sync.
+    ldb.execSync('ALTER TABLE local_rides ADD COLUMN pending_invite_id TEXT;');
+  }
 }
 
 export type LocalRide = {
@@ -110,6 +115,7 @@ export type LocalRide = {
   last_error: string | null;
   pending_title: string | null;
   pending_crew_id: string | null;
+  pending_invite_id: string | null;
 };
 
 export type LocalPoint = {
@@ -179,6 +185,11 @@ export function setPendingTitle(rideId: string, title: string | null) {
 /** The crew this ride counts toward, or null for none. */
 export function setPendingCrew(rideId: string, crewId: string | null) {
   ldb.runSync('UPDATE local_rides SET pending_crew_id = ? WHERE id = ?', [crewId, rideId]);
+}
+
+/** The planned ride this recording is fulfilling, or null for a ride of one. */
+export function setPendingInvite(rideId: string, inviteId: string | null) {
+  ldb.runSync('UPDATE local_rides SET pending_invite_id = ? WHERE id = ?', [inviteId, rideId]);
 }
 
 export function localRide(rideId: string): LocalRide | null {

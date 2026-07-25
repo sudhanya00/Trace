@@ -266,6 +266,7 @@ export async function startRide(bikeId: string | null): Promise<LocalRide> {
     last_error: null,
     pending_title: null,
     pending_crew_id: null,
+    pending_invite_id: null,
   };
 }
 

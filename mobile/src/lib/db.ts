@@ -1295,6 +1295,54 @@ export async function profileStats(profileId: string): Promise<ProfileStats> {
  * Attribute a ride to one of the rider's crews, or to none. Enforced server
  * side too: the rides policy refuses a crew you aren't an active member of.
  */
+/** A planned ride the rider has RSVP'd to and could be starting right now. */
+export type UpcomingRide = {
+  id: string;
+  title: string;
+  starts_at: string;
+  crew_id: string | null;
+  route_id: string;
+  meetup: string | null;
+};
+
+/** Asked once when recording starts: "is this the Sunday run?" */
+export async function myUpcomingRides(): Promise<UpcomingRide[]> {
+  const { data, error } = await supabase.rpc('my_upcoming_rides');
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Who actually rode a planned ride — RSVPs are intent, this is the record. */
+export type InviteRider = {
+  profile_id: string;
+  handle: string;
+  avatar_url: string | null;
+  rsvpd: boolean;
+  ride_id: string | null;
+  distance_km: number | null;
+};
+
+export async function inviteRiders(inviteId: string): Promise<InviteRider[]> {
+  const { data, error } = await supabase.rpc('invite_riders', { p_invite_id: inviteId });
+  if (error) throw error;
+  return (data ?? []).map((r: InviteRider) => ({
+    ...r,
+    distance_km: r.distance_km == null ? null : Number(r.distance_km),
+  }));
+}
+
+/** Attach an already-synced ride to a planned ride (or detach it). */
+export async function setRidePlannedRide(
+  rideId: string,
+  plannedRideId: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from('rides')
+    .update({ planned_ride_id: plannedRideId })
+    .eq('id', rideId);
+  if (error) throw error;
+}
+
 /** Members of a crew, ordered by what they have contributed to it. */
 export type CrewContributor = {
   profile_id: string;
