@@ -1295,6 +1295,34 @@ export async function profileStats(profileId: string): Promise<ProfileStats> {
  * Attribute a ride to one of the rider's crews, or to none. Enforced server
  * side too: the rides policy refuses a crew you aren't an active member of.
  */
+/**
+ * The line for a route, however that route happens to hold its shape.
+ *
+ * A recorded or curated route has real geometry stored. A route planned
+ * through Google has only its waypoints — storing their computed line isn't
+ * permitted — so it gets recomputed here on demand. Callers don't need to
+ * know which kind they're holding.
+ */
+export async function routeLine(routeId: string): Promise<[number, number][][]> {
+  const stored = await publicRouteSegments(routeId).catch(() => null);
+  if (stored?.length) return stored;
+
+  const { data } = await supabase
+    .from('routes')
+    .select('waypoints')
+    .eq('id', routeId)
+    .maybeSingle();
+  const wp = (data?.waypoints ?? []) as { lat: number; lng: number }[];
+  if (wp.length < 2) return [];
+
+  const { planRoute } = await import('./geo-api');
+  const options = await planRoute(
+    wp.map((w) => [w.lng, w.lat] as [number, number]),
+    { alternatives: false }
+  );
+  return options[0]?.coordinates.length ? [options[0].coordinates] : [];
+}
+
 /** A planned ride the rider has RSVP'd to and could be starting right now. */
 export type UpcomingRide = {
   id: string;

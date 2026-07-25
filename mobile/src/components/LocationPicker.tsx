@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import { PlaceResult, searchPlaces } from '../lib/geo-api';
+import { GoogleAttribution } from './GoogleAttribution';
 import { accent, color, font, layout, radius, surface } from '../theme/tokens';
 import { PushButton } from './PushButton';
 import { Sheet } from './Sheet';
@@ -170,6 +171,9 @@ export function LocationPicker({
               Nothing by that name. Try the map instead — some turnings have no address.
             </Text>
           )}
+
+          {/* These results are Google's; say so wherever they appear. */}
+          {results.length > 0 && <GoogleAttribution />}
         </View>
       ) : (
         <View style={{ marginTop: 16 }}>

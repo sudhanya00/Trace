@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 
+import { GoogleAttribution } from '../../src/components/GoogleAttribution';
 import { LocationPicker, PickedPlace } from '../../src/components/LocationPicker';
 import { PushButton } from '../../src/components/PushButton';
 import { ChipSelect, Field, MonoLabel } from '../../src/components/ui';
@@ -220,6 +221,9 @@ export default function PlanRoute() {
                 </GeoJSONSource>
               </MapLibreMap>
             </View>
+
+            {/* The line is Google's, drawn on a MapLibre basemap — attribute it. */}
+            <GoogleAttribution />
 
             {/* Where the network offers more than one road, the rider chooses.
                 Where it offers one, this collapses to a single fact. */}

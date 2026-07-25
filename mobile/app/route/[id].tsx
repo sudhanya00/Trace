@@ -196,13 +196,22 @@ export default function RouteDetail() {
         />
       </View>
 
-      {/* §10: the handoff. We don't build turn-by-turn — that's the wedge. */}
+      {/* Follow in-app: the road drawn, your position on it, nothing spoken.
+          Still no turn-by-turn (§6) — that's a different product. */}
       <PushButton
-        label="Navigate"
-        onPress={navigate}
-        disabled={!segments?.length}
+        label="Follow this route"
+        onPress={() => router.push(`/route/follow?id=${route.id}`)}
         height={64}
         style={{ marginTop: 26 }}
+      />
+
+      {/* §10: the handoff, for riders who want spoken directions. */}
+      <PushButton
+        label="Export for navigation"
+        variant="secondary"
+        onPress={navigate}
+        disabled={!segments?.length}
+        style={{ marginTop: 12 }}
       />
       <Pressable onPress={openGoogleMaps} style={st.gmapsRow} disabled={!segments?.length}>
         <Text style={st.gmapsText}>Open waypoints in Google Maps →</Text>
