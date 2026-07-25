@@ -1241,6 +1241,14 @@ describe('route standardization', () => {
     });
     assert.ok(half.error, 'lat without lng is refused');
 
+    // The point has to come BACK, or the pin is decoration: this is the bug
+    // 20260725000300 fixed — the columns were written and never returned.
+    const board = await asha.rpc('invite_list', { p_crew_id: null });
+    const row = board.data.find((i) => i.title === 'test: meetup point ride');
+    assert.ok(row, 'the ride is on the board');
+    assert.equal(Number(row.meetup_lat).toFixed(3), '32.727', 'the pin comes back');
+    assert.equal(row.meetup_place_id, 'ChIJtest_place_id', 'and its place id with it');
+
     // And a meetup with no point at all is still perfectly legal.
     const wordsOnly = await asha.from('ride_invites').insert({
       created_by: ashaId,

@@ -22,7 +22,8 @@ import { Feather } from '@expo/vector-icons';
 import { Odometer } from '../../src/components/Odometer';
 import { HoldToConfirm } from '../../src/components/HoldToConfirm';
 import { PushButton } from '../../src/components/PushButton';
-import { TrackBed } from '../../src/components/TrackBed';
+import { LocationPicker, PickedPlace } from '../../src/components/LocationPicker';
+import { RecordMap } from '../../src/components/RecordMap';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import { Bike, listBikes, myUpcomingRides, UpcomingRide } from '../../src/lib/db';
@@ -45,10 +46,11 @@ import {
   resumeRide,
   startRide,
 } from '../../src/lib/recording';
+import { planRoute } from '../../src/lib/geo-api';
 import { success } from '../../src/lib/haptics';
 import { oemFamily } from '../../src/lib/oem';
 import { syncPendingRides } from '../../src/lib/sync';
-import { color, font, layout } from '../../src/theme/tokens';
+import { accent, color, font, layout } from '../../src/theme/tokens';
 
 function fmtElapsed(ms: number): { hm: string; s: string } {
   const t = Math.max(0, Math.floor(ms / 1000));
@@ -82,6 +84,12 @@ export default function Record() {
   const [warmFix, setWarmFix] = useState<{ accuracy: number | null; ts: number } | null>(null);
   const [liveShare, setLiveShare] = useState(false);
   const [linkedRide, setLinkedRide] = useState<UpcomingRide | null>(null);
+  // Where the rider said they're headed. A line on the map and nothing more —
+  // no turns, no voice. Enough to know you haven't missed the turning.
+  const [destination, setDestination] = useState<PickedPlace | null>(null);
+  const [destinationLine, setDestinationLine] = useState<[number, number][] | null>(null);
+  const [pickingDest, setPickingDest] = useState(false);
+  const [routing, setRouting] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(LIVE_SHARE_KEY).then((v) => setLiveShare(v === '1')).catch(() => {});
@@ -256,6 +264,35 @@ export default function Record() {
     refresh();
   };
 
+  /**
+   * Draw a line to somewhere. Uses the last known position as the start, so
+   * it works before a ride begins as well as during one. Failure is quiet and
+   * non-blocking: a missing line must never stand between a rider and the
+   * record button.
+   */
+  const setHeading = async (place: PickedPlace) => {
+    setDestination(place);
+    setRouting(true);
+    try {
+      const from =
+        trackPoints.length > 0
+          ? ([trackPoints[trackPoints.length - 1].lng, trackPoints[trackPoints.length - 1].lat] as [number, number])
+          : await Location.getLastKnownPositionAsync()
+              .then((p) => (p ? ([p.coords.longitude, p.coords.latitude] as [number, number]) : null))
+              .catch(() => null);
+      if (!from) {
+        setRouting(false);
+        return;
+      }
+      const options = await planRoute([from, [place.lng, place.lat]], { alternatives: false });
+      setDestinationLine(options[0]?.coordinates ?? null);
+    } catch {
+      setDestinationLine(null);
+    } finally {
+      setRouting(false);
+    }
+  };
+
   const onFinalize = () => {
     if (phase.kind !== 'interrupted') return;
     finalizeInterrupted(phase.ride);
@@ -279,7 +316,7 @@ export default function Record() {
   return (
     <View style={st.root}>
       {/* map bed: real recorded points behind everything, scrimmed (§8) */}
-      <TrackBed points={trackPoints} />
+      <RecordMap points={trackPoints} destination={destinationLine} />
 
       {/* top row: live indicator / GPS status */}
       <View style={st.top}>
@@ -458,6 +495,38 @@ export default function Record() {
         </View>
       )}
 
+      {/* Where to. Available before a ride and during one, because riders
+          decide mid-route as often as they plan ahead. */}
+      {phase.kind !== 'interrupted' && (
+        <Pressable onPress={() => setPickingDest(true)} style={st.destRow}>
+          <Feather
+            name={destination ? 'flag' : 'search'}
+            size={15}
+            color={destination ? accent.trace : color.steel}
+          />
+          <Text style={[st.destText, destination && { color: color.white }]} numberOfLines={1}>
+            {routing
+              ? 'Finding the way…'
+              : destination
+                ? destination.label
+                : 'Heading somewhere? Draw the line'}
+          </Text>
+          {destination ? (
+            <Pressable
+              onPress={() => {
+                setDestination(null);
+                setDestinationLine(null);
+              }}
+              hitSlop={10}
+            >
+              <Feather name="x" size={15} color={color.steel} />
+            </Pressable>
+          ) : (
+            <Feather name="chevron-right" size={15} color={color.dim} />
+          )}
+        </Pressable>
+      )}
+
       {/* control — oversized on purpose: gloves (§8) */}
       <View style={st.ctrl}>
         {phase.kind === 'recording' ? (
@@ -482,6 +551,17 @@ export default function Record() {
           />
         ) : null}
       </View>
+
+      <LocationPicker
+        visible={pickingDest}
+        onClose={() => setPickingDest(false)}
+        title="Where are you headed?"
+        initial={destination}
+        onPick={(p) => {
+          setPickingDest(false);
+          setHeading(p);
+        }}
+      />
 
       {/* §7 step 2: plain language BEFORE the OS dialog */}
       <Modal visible={explainerOpen} transparent animationType="fade" onRequestClose={() => setExplainerOpen(false)}>
@@ -618,6 +698,20 @@ const st = StyleSheet.create({
   bikeChipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   bikeChipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
 
+  destRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: layout.screenPadding,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16,16,16,0.9)',
+  },
+  destText: { flex: 1, fontFamily: font.body, fontSize: 13, color: color.steel },
   linkedRow: {
     flexDirection: 'row',
     alignItems: 'center',

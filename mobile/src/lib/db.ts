@@ -809,6 +809,10 @@ export type RideInvite = {
   /** The route's shape and length, when it has geometry (adhoc routes don't). */
   route_geom: GeoJson | null;
   route_distance_km: number | null;
+  /** The navigable meeting point, when the creator pinned one. */
+  meetup_lat: number | null;
+  meetup_lng: number | null;
+  meetup_place_id: string | null;
   // The caller's own answers, when they've RSVP'd.
   my_bike_category: BikeType | null;
   my_has_gear: boolean | null;

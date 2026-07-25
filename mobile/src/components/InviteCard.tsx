@@ -1,5 +1,8 @@
+import { Feather } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { googleMapsPointUrl } from '../lib/gpx';
 
 import {
   BIKE_TYPES,
@@ -12,7 +15,7 @@ import {
   RsvpAnswers,
 } from '../lib/db';
 import { TrackThumb } from './TrackThumb';
-import { color, font } from '../theme/tokens';
+import { accent, color, font } from '../theme/tokens';
 import { PushButton } from './PushButton';
 import { Sheet } from './Sheet';
 import { Card, ChipSelect, MonoLabel, YesNo } from './ui';
@@ -137,6 +140,25 @@ export function InviteCard({
           </View>
         )}
 
+        {/* The pin the creator dropped, made useful: getting to the meetup is
+            a point-to-point drive with a deadline, so hand it to Google Maps
+            rather than pretending to navigate it ourselves. */}
+        {invite.meetup_lat != null && invite.meetup_lng != null && (
+          <Pressable
+            onPress={() =>
+              Linking.openURL(
+                googleMapsPointUrl(invite.meetup_lat!, invite.meetup_lng!, invite.meetup_place_id)
+              ).catch(() => {})
+            }
+            style={st.meetRow}
+          >
+            <Feather name="navigation" size={13} color={accent.trace} />
+            <Text style={st.meetText} numberOfLines={1}>
+              Take me to the meetup
+            </Text>
+          </Pressable>
+        )}
+
         {invite.i_am_in && answered ? (
           <Pressable onPress={() => setSheet(true)} hitSlop={6}>
             <Text style={st.mine}>You: {answered} — tap to change</Text>
@@ -231,6 +253,8 @@ const st = StyleSheet.create({
     paddingVertical: 3.5,
   },
   mine: { fontFamily: font.body, fontSize: 11, color: color.dim, marginTop: 10 },
+  meetRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 12 },
+  meetText: { fontFamily: font.bodyMedium, fontSize: 12.5, color: accent.trace },
   warn: {
     fontFamily: font.body,
     fontSize: 12,
