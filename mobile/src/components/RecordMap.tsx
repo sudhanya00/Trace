@@ -1,4 +1,10 @@
-import { Camera, GeoJSONSource, Layer, Map as MapLibreMap } from '@maplibre/maplibre-react-native';
+import {
+  Camera,
+  GeoJSONSource,
+  Layer,
+  Map as MapLibreMap,
+  VectorSource,
+} from '@maplibre/maplibre-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -26,16 +32,25 @@ type Pt = { lat: number; lng: number; segment_seq: number };
  * track keeps drawing over whatever is cached — the recording never depends
  * on the map.
  */
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+const TILE_URL = `${SUPABASE_URL}/rest/v1/rpc/trace_tiles?z={z}&x={x}&y={y}`;
+
 export function RecordMap({
   points,
   destination,
   recentreKey = 0,
+  mode = 'ride',
+  traceBounds,
 }: {
   points: Pt[];
   /** A line to somewhere, when the rider set one. Drawn behind the ridden track. */
   destination?: [number, number][] | null;
   /** Bump to snap the camera back to the rider after they've panned away. */
   recentreKey?: number;
+  /** 'ride' draws what you're recording; 'traces' draws everywhere you've been. */
+  mode?: 'ride' | 'traces';
+  /** [w,s,e,n] of the rider's whole history, so 'traces' opens fitted to it. */
+  traceBounds?: [number, number, number, number] | null;
 }) {
   // One line per segment. A gap is drawn as nothing at all.
   const segments = useMemo(() => {
@@ -66,8 +81,44 @@ export function RecordMap({
       >
         {/* Keyed on `recentre` so the camera follows the ride only when it
             changes — otherwise every position update would yank the map back
-            and fight the rider trying to look ahead. */}
-        {centre && <Camera key={`c-${recentreKey}`} center={centre} zoom={14} />}
+            and fight the rider trying to look ahead. In traces mode it opens
+            fitted to everywhere you've ridden. */}
+        {mode === 'traces' && traceBounds ? (
+          <Camera key="c-traces" initialViewState={{ bounds: traceBounds }} />
+        ) : (
+          centre && <Camera key={`c-${recentreKey}`} center={centre} zoom={14} />
+        )}
+
+        {/* Everywhere you've ever ridden. Three translucent passes, so a road
+            ridden ten times glows ten times over — density reads as heat. */}
+        {mode === 'traces' && (
+          <VectorSource id="trace" tiles={[TILE_URL]}>
+            <Layer
+              type="line"
+              id="trace-glow"
+              source="trace"
+              source-layer="trace"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': accent.trace, 'line-width': 6, 'line-opacity': 0.07 }}
+            />
+            <Layer
+              type="line"
+              id="trace-mid"
+              source="trace"
+              source-layer="trace"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': accent.trace, 'line-width': 2.5, 'line-opacity': 0.18 }}
+            />
+            <Layer
+              type="line"
+              id="trace-core"
+              source="trace"
+              source-layer="trace"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+              paint={{ 'line-color': '#FFF1A6', 'line-width': 1.2, 'line-opacity': 0.5 }}
+            />
+          </VectorSource>
+        )}
 
         {/* Where you're headed, if you said. Deliberately dimmer than the
             ridden line — it's a suggestion, not a record of anything. */}
@@ -95,7 +146,7 @@ export function RecordMap({
         )}
 
         {/* What you have actually ridden, in the trace language. */}
-        {segments.length > 0 && (
+        {mode === 'ride' && segments.length > 0 && (
           <GeoJSONSource
             id="rec-track"
             data={{

@@ -17,7 +17,10 @@ import {
   View,
 } from 'react-native';
 
+const ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+
 import { Feather } from '@expo/vector-icons';
+import { TransformRequestManager } from '@maplibre/maplibre-react-native';
 
 import { Odometer } from '../../src/components/Odometer';
 import { PushButton } from '../../src/components/PushButton';
@@ -25,7 +28,7 @@ import { LocationPicker, PickedPlace } from '../../src/components/LocationPicker
 import { RecordMap } from '../../src/components/RecordMap';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
-import { Bike, listBikes, myUpcomingRides, UpcomingRide } from '../../src/lib/db';
+import { Bike, listBikes, myUpcomingRides, traceBounds, UpcomingRide } from '../../src/lib/db';
 import {
   LocalRide,
   pointsForRide,
@@ -46,6 +49,7 @@ import {
   startRide,
 } from '../../src/lib/recording';
 import { planRoute } from '../../src/lib/geo-api';
+import { supabase } from '../../src/lib/supabase';
 import { success } from '../../src/lib/haptics';
 import { oemFamily } from '../../src/lib/oem';
 import { syncPendingRides } from '../../src/lib/sync';
@@ -90,10 +94,40 @@ export default function Record() {
   const [pickingDest, setPickingDest] = useState(false);
   const [routing, setRouting] = useState(false);
   const [recentre, setRecentre] = useState(0);
+  // One map, two things it can show. A plain toggle, always in the same
+  // place: the screen behaves identically every time you open it, which is
+  // what lets muscle memory form.
+  const [mapMode, setMapMode] = useState<'ride' | 'traces'>('ride');
+  const [traceBox, setTraceBox] = useState<[number, number, number, number] | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(LIVE_SHARE_KEY).then((v) => setLiveShare(v === '1')).catch(() => {});
   }, []);
+
+  // Trace tiles are RLS-scoped to the rider, so the tile requests carry the
+  // caller's JWT. Re-applied on focus so a refreshed token wins.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      (async () => {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        if (!token || !alive) return;
+        TransformRequestManager.clearHeaders();
+        for (const [name, value] of [
+          ['apikey', ANON_KEY],
+          ['Authorization', `Bearer ${token}`],
+          ['Accept', 'application/vnd.mapbox-vector-tile'],
+        ]) {
+          TransformRequestManager.addHeader({ match: /rpc\/trace_tiles/, name, value });
+        }
+        traceBounds().then((b) => alive && setTraceBox(b)).catch(() => {});
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [])
+  );
 
   const refresh = useCallback(async () => {
     const ride = recordingRide();
@@ -316,7 +350,13 @@ export default function Record() {
   return (
     <View style={st.root}>
       {/* map bed: real recorded points behind everything, scrimmed (§8) */}
-      <RecordMap points={trackPoints} destination={destinationLine} recentreKey={recentre} />
+      <RecordMap
+        points={trackPoints}
+        destination={destinationLine}
+        recentreKey={recentre}
+        mode={mapMode}
+        traceBounds={traceBox}
+      />
 
       {/* top row: live indicator / GPS status */}
       <View style={st.top}>
@@ -344,6 +384,22 @@ export default function Record() {
             />
           </View>
         )}
+      </View>
+
+      {/* The toggle. Deliberately loud and always in the same place — a
+          control that moves or changes meaning is one nobody learns. */}
+      <View style={st.modeRow}>
+        {(['ride', 'traces'] as const).map((m) => (
+          <Pressable
+            key={m}
+            onPress={() => setMapMode(m)}
+            style={[st.modeBtn, mapMode === m && st.modeBtnOn]}
+          >
+            <Text style={[st.modeText, mapMode === m && { color: color.white }]}>
+              {m === 'ride' ? 'THIS RIDE' : 'MY TRACES'}
+            </Text>
+          </Pressable>
+        ))}
       </View>
 
       {/* Where to — at the top, out of the keyboard's way, and translucent so
@@ -705,6 +761,20 @@ const st = StyleSheet.create({
   bikeChipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   bikeChipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
 
+  modeRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginHorizontal: layout.screenPadding,
+    marginTop: 10,
+    padding: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  modeBtn: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 9 },
+  modeBtnOn: { backgroundColor: color.slate2 },
+  modeText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.dim },
   destRow: {
     flexDirection: 'row',
     alignItems: 'center',

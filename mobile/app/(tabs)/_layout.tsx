@@ -71,17 +71,12 @@ export default function TabsLayout() {
           tabBarIcon: ({ focused }) => <TabIcon name="compass" focused={focused} />,
         }}
       />
-      <Tabs.Screen
-        name="trace"
-        options={{
-          title: 'TRACE',
-          tabBarIcon: ({ focused }) => <TabIcon name="activity" focused={focused} />,
-        }}
-      />
+      {/* Trace merged into Record (2026-07-25): both were a dark map of your
+          riding, and one screen with a visible toggle beats two tabs. */}
       <Tabs.Screen
         name="record"
         options={{
-          title: 'RECORD',
+          title: 'RIDE',
           tabBarIcon: ({ focused }) => <TabIcon name="disc" focused={focused} />,
         }}
       />
