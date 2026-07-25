@@ -21,14 +21,27 @@ alter table ride_invites add constraint meetup_point_complete
   check ((meetup_lat is null) = (meetup_lng is null));
 
 -- ---------------------------------------------------------------------------
--- Route provenance. Geometry now arrives from several places and they carry
--- different obligations: an OSM-derived line (ORS) requires attribution under
--- ODbL, a recorded trace is the rider's own, curated is ours. Knowing which is
--- which is what lets the app attribute correctly instead of guessing.
+-- Route provenance and waypoints.
+--
+-- Geometry arrives from two kinds of place now, and they carry very different
+-- obligations:
+--
+--   'recorded' — the rider's own trace. Theirs, stored forever, no strings.
+--   'google'   — computed by Google's Routes API. Their terms restrict storing
+--                the returned line, so we DON'T. We store the waypoints the
+--                rider chose (their own coordinates, plus place IDs, which
+--                Google explicitly exempts) and recompute the line on demand.
+--
+-- That's what `waypoints` is for: an ordered array of
+--   { lat, lng, place_id?, label? }
+-- which fully defines the route without retaining a metre of Google content.
+-- geom stays null for those rows; a recorded route fills geom and leaves
+-- waypoints null.
 -- ---------------------------------------------------------------------------
 alter table routes
   add column geom_provider text
-    check (geom_provider is null or geom_provider in ('recorded', 'ors', 'manual', 'curated')),
+    check (geom_provider is null or geom_provider in ('recorded', 'google', 'manual', 'curated')),
+  add column waypoints jsonb,
   -- Several routes can share endpoints — Jammu→Patnitop via the highway and
   -- via the old road are different lines between the same two places. Storing
   -- the endpoints as labels lets the picker say which is which without
@@ -40,3 +53,10 @@ alter table routes
 
 -- Existing routes all came from recorded rides.
 update routes set geom_provider = 'recorded' where geom is not null;
+
+-- A route is only useful if it can be drawn: either it has its own geometry,
+-- or it has the waypoints to recompute one. An adhoc "just named it" route has
+-- neither, and that's legitimate — it's a name and a meeting point.
+alter table routes add constraint route_drawable check (
+  source = 'adhoc' or geom is not null or waypoints is not null
+);

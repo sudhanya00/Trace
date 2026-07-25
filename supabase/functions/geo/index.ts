@@ -12,19 +12,26 @@
  *  3. Places and Directions bill per call, so the cache here is money.
  *  4. Providers change. This is one server file, not an app release.
  *
- * Provider split is deliberate (2026-07-25): Google Places for search, because
- * Indian local landmarks ("City Chowk Jammu") are where OSM is weakest and
- * Google is strongest — and OpenRouteService for geometry we intend to STORE,
- * because Google's terms restrict storing Directions content while ODbL
- * permits derived storage with attribution.
+ * One provider — Google (user decision 2026-07-25) — for both search and
+ * routing, with a hard rule attached:
+ *
+ *   WE NEVER STORE A GOOGLE-COMPUTED LINE.
+ *
+ * Google's terms restrict storing Directions content; place IDs are the stated
+ * exemption. So a planned route is persisted as the WAYPOINTS the rider chose
+ * (their own coordinates, plus exempt place IDs) and the line is recomputed
+ * here on demand. That keeps one vendor, one bill, and the best Indian
+ * coverage, without retaining a metre of their content.
+ *
+ * The cache below is what stops "recompute on demand" meaning "pay Google
+ * every time someone looks at a ride".
  *
  * Secrets (set with `supabase secrets set`, never in the repo):
- *   GOOGLE_MAPS_KEY  — Places API enabled, billing on
- *   ORS_KEY          — openrouteservice.org API key
+ *   GOOGLE_MAPS_KEY  — with BOTH "Places API (New)" and "Routes API" enabled,
+ *                      billing on
  */
 
 const GOOGLE_KEY = Deno.env.get('GOOGLE_MAPS_KEY');
-const ORS_KEY = Deno.env.get('ORS_KEY');
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -115,46 +122,53 @@ async function placesSearch(query: string, near?: { lat: number; lng: number }) 
 }
 
 /**
- * OpenRouteService directions, as GeoJSON.
+ * Google Routes API. Returns the line for display only — the caller stores the
+ * waypoints, never this.
  *
- * Two ORS constraints worth knowing, both reflected here:
- *  - there is no motorcycle profile; driving-car is the closest fit
- *  - alternatives are only offered for a plain two-point request. Once via
- *    points are supplied the rider has already said which way they want, so
- *    ORS returns that one line and the choice was theirs anyway.
+ * GEO_JSON_LINESTRING is requested rather than the default encoded polyline so
+ * nothing has to decode Google's polyline format on the client; the shape
+ * arrives in the same [lng, lat] order everything else in this app uses.
  *
- * UNVERIFIED against a live key at time of writing — no ORS credential was
- * available. If the shape is wrong, it is wrong in this file alone.
+ * Alternatives are only meaningful between two points. Once via points exist
+ * the rider has already said which way they're going, so Google is asked for
+ * the one line through them.
  */
-async function orsRoute(points: [number, number][], wantAlternatives: boolean) {
-  if (!ORS_KEY) throw new Error('ORS_KEY is not set');
-  const body: Record<string, unknown> = { coordinates: points, instructions: false };
-  if (wantAlternatives && points.length === 2) {
-    body.alternative_routes = { target_count: 3, share_factor: 0.6, weight_factor: 1.4 };
-  }
+async function googleRoute(points: [number, number][], wantAlternatives: boolean) {
+  if (!GOOGLE_KEY) throw new Error('GOOGLE_MAPS_KEY is not set');
 
-  const res = await fetch(
-    'https://api.openrouteservice.org/v2/directions/driving-car/geojson',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: ORS_KEY,
-        'Content-Type': 'application/json',
-        Accept: 'application/geo+json',
-      },
-      body: JSON.stringify(body),
-    }
-  );
-  if (!res.ok) throw new Error(`ors ${res.status}: ${await res.text()}`);
+  const asWaypoint = ([lng, lat]: [number, number]) => ({
+    location: { latLng: { latitude: lat, longitude: lng } },
+  });
+  const twoPoints = points.length === 2;
+
+  const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_KEY,
+      // Narrow on purpose: the field mask decides the billing tier.
+      'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.geoJsonLinestring',
+    },
+    body: JSON.stringify({
+      origin: asWaypoint(points[0]),
+      destination: asWaypoint(points[points.length - 1]),
+      intermediates: points.slice(1, -1).map(asWaypoint),
+      travelMode: 'DRIVE',
+      computeAlternativeRoutes: wantAlternatives && twoPoints,
+      polylineEncoding: 'GEO_JSON_LINESTRING',
+      units: 'METRIC',
+    }),
+  });
+  if (!res.ok) throw new Error(`routes ${res.status}: ${await res.text()}`);
   const data = await res.json();
 
-  return (data.features ?? []).map((f: Record<string, any>, i: number) => ({
+  return (data.routes ?? []).map((r: Record<string, any>, i: number) => ({
     index: i,
-    coordinates: f.geometry?.coordinates ?? [],
-    distance_km: (f.properties?.summary?.distance ?? 0) / 1000,
-    duration_min: Math.round((f.properties?.summary?.duration ?? 0) / 60),
-    // ODbL: OSM-derived geometry must carry its attribution wherever it lands.
-    attribution: 'Directions © openrouteservice.org, data © OpenStreetMap contributors',
+    // GeoJSON LineString: coordinates already [lng, lat].
+    coordinates: r.polyline?.geoJsonLinestring?.coordinates ?? [],
+    distance_km: (r.distanceMeters ?? 0) / 1000,
+    // Google returns duration as a string of seconds, e.g. "8130s".
+    duration_min: Math.round(parseInt(String(r.duration ?? '0').replace('s', ''), 10) / 60),
   }));
 }
 
@@ -190,7 +204,7 @@ Deno.serve(async (req) => {
       const hit = cached(key);
       if (hit) return json({ routes: hit, cached: true });
 
-      const routes = await orsRoute(points, params.alternatives !== false);
+      const routes = await googleRoute(points, params.alternatives !== false);
       cache.set(key, { at: Date.now(), body: routes });
       return json({ routes });
     }

@@ -16,14 +16,25 @@ export type PlaceResult = {
   lng: number;
 };
 
+/**
+ * A line to look at, not to keep. Google's terms restrict storing computed
+ * routes, so these coordinates are for display and the WAYPOINTS get saved —
+ * the line is recomputed whenever it's needed again.
+ */
 export type RouteOption = {
   index: number;
-  /** [lng, lat] pairs, GeoJSON order. */
+  /** [lng, lat] pairs, GeoJSON order. Display only — never persisted. */
   coordinates: [number, number][];
   distance_km: number;
   duration_min: number;
-  /** ODbL requires this to travel with the geometry. */
-  attribution: string;
+};
+
+/** What a planned route is actually made of, and the only part we store. */
+export type Waypoint = {
+  lat: number;
+  lng: number;
+  place_id: string | null;
+  label: string;
 };
 
 async function call<T>(body: object): Promise<T> {
@@ -55,6 +66,9 @@ export async function searchPlaces(
  * the router offers alternatives — the several ways from A to B. Add via
  * points and it returns the one road that goes through them, which is how a
  * rider says "no, the old road" rather than accepting the fastest.
+ *
+ * Call this whenever a route needs drawing; do not cache the result on the
+ * device. The server caches briefly so this isn't a billed request every time.
  */
 export async function planRoute(
   points: [number, number][],
