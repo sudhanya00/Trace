@@ -498,22 +498,30 @@ describe('live location and achievements', () => {
     await veer.from('follows').delete().eq('follower_id', veerId);
   });
 
-  it('live position is follower-gated — public visibility does not extend here', async () => {
+  it('live position is CREW-gated — following someone is not being expected on a ride', async () => {
+    // Rewritten 2026-07-25: this used to assert follower visibility, which was
+    // the behaviour we deliberately dropped. A rider now names the crews who
+    // can see them, and being followed grants nothing.
     await asha.from('live_positions').upsert({
       profile_id: ashaId,
       geom: 'POINT(78.3 31.4)',
       ride_started_at: new Date().toISOString(),
+      shared_crew_ids: [],
+      updated_at: new Date().toISOString(),
     });
-    // veer is not following asha right now
+
     const blind = await veer.rpc('live_position_of', { p_profile_id: ashaId });
-    assert.equal(blind.data, null, 'stranger sees nothing even though asha is public');
+    assert.equal(blind.data, null, 'a stranger sees nothing even though asha is public');
 
     await veer.from('follows').insert({ follower_id: veerId, followee_id: ashaId });
-    const seen = await veer.rpc('live_position_of', { p_profile_id: ashaId });
-    assert.ok(seen.data?.point, 'accepted follower sees the live point');
+    const stillBlind = await veer.rpc('live_position_of', { p_profile_id: ashaId });
+    assert.equal(stillBlind.data, null, 'and a follower still sees nothing — crews only');
 
     const forged = await veer.from('live_positions').upsert({ profile_id: ashaId, geom: 'POINT(0 0)' });
     assert.ok(forged.error, 'nobody writes someone else’s position');
+
+    await asha.from('live_positions').delete().eq('profile_id', ashaId);
+    await veer.from('follows').delete().eq('follower_id', veerId).eq('followee_id', ashaId);
   });
 
   it('achievements are awarded by the server and refused from clients', async () => {
@@ -1446,6 +1454,89 @@ describe('a planned ride meets its recording', () => {
     assert.ok(forged.error, 'a non-member cannot claim a crew’s planned ride');
 
     await asha.from('crews').delete().eq('id', crew.id);
+  });
+});
+
+describe('live location goes to chosen crews only', () => {
+  let crewId;
+
+  after(async () => {
+    await asha.from('live_positions').delete().eq('profile_id', ashaId);
+    if (crewId) await asha.from('crews').delete().eq('id', crewId);
+  });
+
+  it('a crewmate sees it; a stranger and a mere follower do not', async () => {
+    const { data: crew } = await asha
+      .from('crews')
+      .insert({ name: 'test: live crew', created_by: ashaId })
+      .select('id')
+      .single();
+    crewId = crew.id;
+
+    await asha.from('live_positions').upsert({
+      profile_id: ashaId,
+      geom: 'POINT(74.857 32.7266)',
+      shared_crew_ids: [crewId],
+      updated_at: new Date().toISOString(),
+    });
+
+    // veer is not in the crew — sharing with a crew is not sharing with the world.
+    const stranger = await veer.rpc('crew_live_riders', { p_crew_id: crewId });
+    assert.equal(stranger.data.length, 0, 'a non-member sees nobody');
+    const direct = await veer
+      .from('live_positions')
+      .select('profile_id')
+      .eq('profile_id', ashaId)
+      .maybeSingle();
+    assert.equal(direct.data, null, 'and cannot read the row directly either');
+
+    // The rider's own crew does see it.
+    const mine = await asha.rpc('crew_live_riders', { p_crew_id: crewId });
+    assert.equal(mine.data.length, 1, 'a crewmate sees the rider');
+    assert.equal(mine.data[0].handle, 'asha');
+    assert.ok(mine.data[0].point, 'with a position to look at');
+  });
+
+  it('a stale position stops counting as live', async () => {
+    await asha.from('live_positions').upsert({
+      profile_id: ashaId,
+      geom: 'POINT(74.857 32.7266)',
+      shared_crew_ids: [crewId],
+      // Twenty minutes old: the app died or the ride ended badly. Showing this
+      // as "live" is worse than showing nothing — someone might ride to it.
+      updated_at: new Date(Date.now() - 20 * 60_000).toISOString(),
+    });
+    const rows = await asha.rpc('crew_live_riders', { p_crew_id: crewId });
+    assert.equal(rows.data.length, 0, 'nothing older than 15 minutes is live');
+  });
+
+  it('sharing with no crews broadcasts to nobody', async () => {
+    await asha.from('live_positions').upsert({
+      profile_id: ashaId,
+      geom: 'POINT(74.857 32.7266)',
+      shared_crew_ids: [],
+      updated_at: new Date().toISOString(),
+    });
+    const rows = await asha.rpc('crew_live_riders', { p_crew_id: crewId });
+    assert.equal(rows.data.length, 0, 'an empty audience is an empty audience');
+  });
+
+  it('you cannot announce yourself into a crew you are not in', async () => {
+    const before = await asha.rpc('crew_chat', { p_crew_id: crewId });
+    const forged = await veer.rpc('announce_live_share', { p_crew_ids: [crewId] });
+    assert.equal(forged.error, null, 'the call succeeds but does nothing');
+    const after = await asha.rpc('crew_chat', { p_crew_id: crewId });
+    assert.equal(after.data.length, before.data.length, 'no message reached the room');
+  });
+
+  it('the client cannot forge a live_share message', async () => {
+    const forged = await asha.from('crew_messages').insert({
+      crew_id: crewId,
+      profile_id: ashaId,
+      body: 'is sharing live location',
+      kind: 'live_share',
+    });
+    assert.ok(forged.error, 'only the definer function writes these');
   });
 });
 

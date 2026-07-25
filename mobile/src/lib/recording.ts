@@ -9,8 +9,12 @@ import { metersBetween } from './geo';
 import { deleteLocalRide, ldb, LocalRide, recordingRide, rideState } from './localdb';
 import { supabase } from './supabase';
 
-/** AsyncStorage key for the live-share opt-in. OFF unless the rider says so. */
-export const LIVE_SHARE_KEY = 'trace_live_share';
+/**
+ * The crews this ride is being shared with, as a JSON array of ids. Cleared
+ * when a ride finishes: the rider decides again next time rather than
+ * broadcasting to a crew they picked months ago and forgot about.
+ */
+export const LIVE_SHARE_KEY = 'trace_live_share_crews';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -76,15 +80,19 @@ TaskManager.defineTask(RECORDING_TASK, async ({ data, error }) => {
   if (now - lastNotificationUpdate > 30_000) {
     lastNotificationUpdate = now;
     const s = rideState(ride.id);
-    // Live share (opt-in): one small upsert per cycle. Followers-only by RLS;
-    // failure (dead zone) is silence, and staleness reads honestly on their end.
+    // Live share (opt-in): one small upsert per cycle, visible only to the
+    // crews the rider named. A dead zone means silence, and a stale row stops
+    // counting as live after 15 minutes rather than lingering as a ghost.
     if (s) {
+      // The crews the rider chose for THIS ride. No crews, no broadcast —
+      // there is no "share with everyone" any more.
       AsyncStorage.getItem(LIVE_SHARE_KEY)
-        .then(async (on) => {
-          if (on !== '1') return;
+        .then(async (raw) => {
+          const crewIds: string[] = raw ? JSON.parse(raw) : [];
+          if (!Array.isArray(crewIds) || crewIds.length === 0) return;
           const { data } = await supabase.auth.getSession();
           const uid = data.session?.user.id;
-          if (uid) await upsertLivePosition(uid, s.last_lng, s.last_lat, ride.started_at);
+          if (uid) await upsertLivePosition(uid, s.last_lng, s.last_lat, ride.started_at, crewIds);
         })
         .catch(() => {});
     }
@@ -292,6 +300,8 @@ export async function finishRide(ride: LocalRide): Promise<void> {
     const uid = data.session?.user.id;
     if (uid) clearLivePosition(uid).catch(() => {});
   });
+  // The audience is chosen per ride, so it never outlives one.
+  AsyncStorage.removeItem(LIVE_SHARE_KEY).catch(() => {});
 }
 
 /**
@@ -308,6 +318,8 @@ export async function cancelRide(ride: LocalRide): Promise<void> {
     const uid = data.session?.user.id;
     if (uid) clearLivePosition(uid).catch(() => {});
   });
+  // The audience is chosen per ride, so it never outlives one.
+  AsyncStorage.removeItem(LIVE_SHARE_KEY).catch(() => {});
 }
 
 /** Finalize a ride found dead after a kill/reboot — data kept, never lost (§5). */

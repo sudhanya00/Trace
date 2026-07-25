@@ -684,8 +684,11 @@ export type CrewMessage = {
   profile_id: string;
   handle: string;
   body: string;
-  /** 'contribution' rows are ride attributions, written by trigger, not typed. */
-  kind: 'chat' | 'contribution';
+  /**
+   * 'chat' is typed by a rider. 'contribution' and 'live_share' are events
+   * written server-side — the client is refused any kind but chat.
+   */
+  kind: 'chat' | 'contribution' | 'live_share';
   ride_id: string | null;
   distance_km: number | null;
   created_at: string;
@@ -928,13 +931,46 @@ export async function traceBounds(): Promise<[number, number, number, number] | 
   return data as [number, number, number, number] | null;
 }
 
-export async function upsertLivePosition(userId: string, lng: number, lat: number, rideStartedAt: number) {
+export async function upsertLivePosition(
+  userId: string,
+  lng: number,
+  lat: number,
+  rideStartedAt: number,
+  sharedCrewIds: string[]
+) {
   await supabase.from('live_positions').upsert({
     profile_id: userId,
     geom: `POINT(${lng} ${lat})`,
     ride_started_at: new Date(rideStartedAt).toISOString(),
+    // Written every cycle: the rider's chosen audience travels with the
+    // position, so turning sharing off mid-ride takes effect immediately.
+    shared_crew_ids: sharedCrewIds,
     updated_at: new Date().toISOString(),
   });
+}
+
+/** Tell the chosen crews you've set off. Once, when sharing is switched on. */
+export async function announceLiveShare(crewIds: string[]): Promise<void> {
+  if (crewIds.length === 0) return;
+  const { error } = await supabase.rpc('announce_live_share', { p_crew_ids: crewIds });
+  if (error) throw error;
+}
+
+/** Riders currently out and sharing with this crew. Empties itself: nothing
+ *  older than 15 minutes counts as live. */
+export type LiveRider = {
+  profile_id: string;
+  handle: string;
+  avatar_url: string | null;
+  point: { type: 'Point'; coordinates: [number, number] };
+  ride_started_at: string | null;
+  updated_at: string;
+};
+
+export async function crewLiveRiders(crewId: string): Promise<LiveRider[]> {
+  const { data, error } = await supabase.rpc('crew_live_riders', { p_crew_id: crewId });
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function clearLivePosition(userId: string) {

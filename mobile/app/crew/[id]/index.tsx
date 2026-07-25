@@ -23,7 +23,9 @@ import {
   Crew,
   CrewMember,
   CrewMessage,
+  LiveRider,
   crewChat,
+  crewLiveRiders,
   crewRoster,
   declineCrewRequest,
   joinCrew,
@@ -37,7 +39,7 @@ import {
 } from '../../../src/lib/db';
 import { supabase } from '../../../src/lib/supabase';
 import { useKeyboardHeight } from '../../../src/lib/useKeyboardHeight';
-import { color, font, layout } from '../../../src/theme/tokens';
+import { accent, color, font, layout } from '../../../src/theme/tokens';
 
 /**
  * The crew room: live chat over Supabase Realtime. The WAL stream respects
@@ -49,6 +51,7 @@ export default function CrewRoom() {
   const { session } = useAuth();
   const [crew, setCrew] = useState<Crew | null>(null);
   const kbHeight = useKeyboardHeight();
+  const [liveRiders, setLiveRiders] = useState<LiveRider[]>([]);
   const [roster, setRoster] = useState<Map<string, CrewMember>>(new Map());
   const [messages, setMessages] = useState<CrewMessage[]>([]);
   const [member, setMember] = useState(false);
@@ -71,6 +74,7 @@ export default function CrewRoom() {
     setRoster(new Map(r.filter((m) => m.state === 'active').map((m) => [m.profile_id, m])));
     setRequests(r.filter((m) => m.state === 'pending'));
     setMember(mine?.state === 'active');
+    crewLiveRiders(id).then(setLiveRiders).catch(() => {});
     setMessages(await crewChat(id).catch(() => []));
     setInvites(await listInvites(id).catch(() => []));
   }, [id, session]);
@@ -95,7 +99,7 @@ export default function CrewRoom() {
             id: string;
             profile_id: string;
             body: string;
-            kind?: 'chat' | 'contribution';
+            kind?: 'chat' | 'contribution' | 'live_share';
             ride_id?: string | null;
             distance_km?: number | null;
             created_at: string;
@@ -197,6 +201,20 @@ export default function CrewRoom() {
 
       {member ? (
         <>
+          {/* Who's out right now. Self-cleaning: nothing older than 15 minutes
+              counts as live, so this empties itself when riders park. */}
+          {liveRiders.length > 0 && (
+            <Pressable onPress={() => router.push(`/crew/${id}/live`)} style={st.liveBanner}>
+              <View style={st.livePulse} />
+              <Text style={st.liveBannerText} numberOfLines={1}>
+                {liveRiders.length === 1
+                  ? `@${liveRiders[0].handle} is riding now`
+                  : `${liveRiders.length} riders out now`}
+              </Text>
+              <Feather name="chevron-right" size={15} color={accent.trace} />
+            </Pressable>
+          )}
+
           {isAdmin && requests.length > 0 && (
             <View style={st.requestsWrap}>
               <MonoLabel size={8.5} style={{ marginBottom: 8 }}>
@@ -276,6 +294,18 @@ export default function CrewRoom() {
             renderItem={({ item }) => {
               // A contribution is an event in the crew's life, not something
               // somebody said — so it spans the room instead of taking a side.
+              // "@asha is sharing live location" — an event, said once when
+              // they set off. The banner above is what stays current.
+              if (item.kind === 'live_share') {
+                return (
+                  <View style={st.liveMsg}>
+                    <View style={st.liveMsgDot} />
+                    <Text style={st.liveMsgText}>
+                      <Text style={st.liveMsgWho}>@{item.handle}</Text> {item.body}
+                    </Text>
+                  </View>
+                );
+              }
               if (item.kind === 'contribution') {
                 return (
                   <Pressable
@@ -436,6 +466,33 @@ const st = StyleSheet.create({
 
   invitesStrip: { paddingHorizontal: layout.screenPadding, paddingTop: 12 },
   planRow: { alignSelf: 'flex-end', paddingHorizontal: layout.screenPadding, paddingVertical: 8 },
+  liveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: layout.screenPadding,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: 'rgba(255,201,51,0.28)',
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,201,51,0.08)',
+  },
+  livePulse: { width: 7, height: 7, borderRadius: 4, backgroundColor: accent.trace },
+  liveBannerText: { flex: 1, fontFamily: font.bodySemi, fontSize: 13, color: accent.trace },
+  liveMsg: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    alignSelf: 'stretch',
+    marginVertical: 8,
+    paddingVertical: 8,
+  },
+  liveMsgDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: accent.trace },
+  liveMsgText: { fontFamily: font.body, fontSize: 11.5, color: color.dim },
+  liveMsgWho: { fontFamily: font.bodySemi, color: color.steel },
   contribution: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -26,9 +26,20 @@ import { Odometer } from '../../src/components/Odometer';
 import { PushButton } from '../../src/components/PushButton';
 import { LocationPicker, PickedPlace } from '../../src/components/LocationPicker';
 import { RecordMap } from '../../src/components/RecordMap';
+import { Sheet } from '../../src/components/Sheet';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
-import { Bike, listBikes, myUpcomingRides, traceBounds, UpcomingRide } from '../../src/lib/db';
+import {
+  announceLiveShare,
+  Bike,
+  Crew,
+  listBikes,
+  listCrews,
+  myCrewIds,
+  myUpcomingRides,
+  traceBounds,
+  UpcomingRide,
+} from '../../src/lib/db';
 import {
   LocalRide,
   pointsForRide,
@@ -85,7 +96,11 @@ export default function Record() {
   // permission only) means the fix usually exists BEFORE the Start tap —
   // the same trick maps apps use. Stops on blur; costs nothing on other tabs.
   const [warmFix, setWarmFix] = useState<{ accuracy: number | null; ts: number } | null>(null);
-  const [liveShare, setLiveShare] = useState(false);
+  // Which crews can see this ride. Empty means nobody, and it starts empty
+  // every ride — the audience is a decision, not a setting.
+  const [shareCrews, setShareCrews] = useState<string[]>([]);
+  const [myCrews, setMyCrews] = useState<Crew[]>([]);
+  const [pickingCrews, setPickingCrews] = useState(false);
   const [linkedRide, setLinkedRide] = useState<UpcomingRide | null>(null);
   // Where the rider said they're headed. A line on the map and nothing more —
   // no turns, no voice. Enough to know you haven't missed the turning.
@@ -101,8 +116,26 @@ export default function Record() {
   const [traceBox, setTraceBox] = useState<[number, number, number, number] | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(LIVE_SHARE_KEY).then((v) => setLiveShare(v === '1')).catch(() => {});
+    AsyncStorage.getItem(LIVE_SHARE_KEY)
+      .then((raw) => setShareCrews(raw ? JSON.parse(raw) : []))
+      .catch(() => {});
   }, []);
+
+  // The crews available to share with — only ones the rider is actually in.
+  useEffect(() => {
+    if (!session) return;
+    Promise.all([listCrews(), myCrewIds(session.user.id)])
+      .then(([all, mine]) => setMyCrews(all.filter((c) => mine.has(c.id))))
+      .catch(() => {});
+  }, [session]);
+
+  /** Turning it on announces once per newly-added crew; turning it off is silent. */
+  const applyShareCrews = async (next: string[]) => {
+    const added = next.filter((id) => !shareCrews.includes(id));
+    setShareCrews(next);
+    await AsyncStorage.setItem(LIVE_SHARE_KEY, JSON.stringify(next)).catch(() => {});
+    if (added.length > 0) await announceLiveShare(added).catch(() => {});
+  };
 
   // Trace tiles are RLS-scoped to the rider, so the tile requests carry the
   // caller's JWT. Re-applied on focus so a refreshed token wins.
@@ -493,19 +526,18 @@ export default function Record() {
 
       
       {/* live share opt-in: followers-only, off by default */}
-      {phase.kind === 'idle' && (
-        <Pressable
-          onPress={async () => {
-            const next = !liveShare;
-            setLiveShare(next);
-            await AsyncStorage.setItem(LIVE_SHARE_KEY, next ? '1' : '0').catch(() => {});
-          }}
-          style={st.liveShareRow}
-        >
-          <View style={[st.liveShareDot, liveShare && { backgroundColor: color.trace }]} />
-          <Text style={st.liveShareText}>
-            Share live location with followers while riding {liveShare ? '— on' : '— off'}
+      {/* Who can see you, named. The old copy said "followers" and nobody
+          could tell where they'd see it — now you pick crews, and it shows up
+          in the room where they already talk about riding. */}
+      {phase.kind !== 'interrupted' && (
+        <Pressable onPress={() => setPickingCrews(true)} style={st.liveShareRow}>
+          <View style={[st.liveShareDot, shareCrews.length > 0 && { backgroundColor: accent.trace }]} />
+          <Text style={st.liveShareText} numberOfLines={1}>
+            {shareCrews.length === 0
+              ? 'Share location — off'
+              : `Live to ${shareCrews.length} crew${shareCrews.length === 1 ? '' : 's'}`}
           </Text>
+          <Feather name="chevron-right" size={14} color={color.dim} />
         </Pressable>
       )}
 
@@ -606,6 +638,53 @@ export default function Record() {
           />
         ) : null}
       </View>
+
+      <Sheet
+        visible={pickingCrews}
+        onClose={() => setPickingCrews(false)}
+        label="Live location"
+        title="Who can see you?"
+      >
+        {myCrews.length === 0 ? (
+          <Text style={st.shareNote}>
+            You&apos;re not in any crews yet. Live location goes to crews — join one and this
+            becomes useful.
+          </Text>
+        ) : (
+          <>
+            <Text style={st.shareNote}>
+              They&apos;ll see it in the crew chat while you&apos;re riding, and it stops the moment
+              you finish.
+            </Text>
+            {myCrews.map((c) => {
+              const on = shareCrews.includes(c.id);
+              return (
+                <Pressable
+                  key={c.id}
+                  onPress={() =>
+                    applyShareCrews(
+                      on ? shareCrews.filter((x) => x !== c.id) : [...shareCrews, c.id]
+                    )
+                  }
+                >
+                  {({ pressed }) => (
+                    <View style={[st.shareRow, pressed && { backgroundColor: color.slate2 }]}>
+                      <Text style={[st.shareName, on && { color: color.white }]}>{c.name}</Text>
+                      <View style={[st.shareCheck, on && st.shareCheckOn]} />
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </>
+        )}
+        <PushButton
+          label="Done"
+          variant="secondary"
+          onPress={() => setPickingCrews(false)}
+          style={{ marginTop: 18, marginBottom: 8 }}
+        />
+      </Sheet>
 
       <LocationPicker
         visible={pickingDest}
@@ -827,6 +906,26 @@ const st = StyleSheet.create({
   interruptedBody: { fontFamily: font.body, fontSize: 12, color: color.steel, lineHeight: 17, marginTop: 6 },
   oemLink: { fontFamily: font.bodyMedium, fontSize: 12, color: color.amber, lineHeight: 17 },
 
+  shareNote: { fontFamily: font.body, fontSize: 12.5, color: color.steel, lineHeight: 18, marginBottom: 14 },
+  shareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: color.hair,
+  },
+  shareName: { fontFamily: font.bodySemi, fontSize: 15, color: color.steel },
+  shareCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate2,
+  },
+  shareCheckOn: { backgroundColor: accent.trace, borderColor: accent.trace },
   liveShareRow: {
     flexDirection: 'row',
     alignItems: 'center',
