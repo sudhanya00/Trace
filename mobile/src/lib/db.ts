@@ -570,11 +570,19 @@ export async function searchRiders(userId: string, q: string): Promise<Profile[]
   return data ?? [];
 }
 
+/**
+ * A rider's saved roads, for their profile.
+ *
+ * Adhoc routes are excluded on purpose: every planned ride mints one behind
+ * the scenes to carry its name, so listing them would fill the tab with a
+ * shadow copy of the ride board rather than roads anyone chose to keep.
+ */
 export async function listRiderRoutes(profileId: string): Promise<Route[]> {
   const { data, error } = await supabase
     .from('routes_public')
     .select(ROUTE_COLS)
     .eq('profile_id', profileId)
+    .neq('source', 'adhoc')
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data ?? [];
@@ -838,6 +846,29 @@ export function inviteAsks(i: RideInvite): (keyof RsvpAnswers)[] {
   return asks;
 }
 
+/** One planned ride in full — the detail page's shape. */
+export type InviteDetail = RideInvite & {
+  crew_name: string | null;
+  description: string | null;
+  route_name: string | null;
+  created_at: string;
+  i_created_it: boolean;
+};
+
+export async function getInvite(inviteId: string): Promise<InviteDetail | null> {
+  const { data, error } = await supabase.rpc('invite_detail', { p_invite_id: inviteId });
+  if (error) throw error;
+  const row = (data ?? [])[0];
+  if (!row) return null;
+  return { ...row, rsvp_count: Number(row.rsvp_count) };
+}
+
+/** Cancel a ride you planned. Everyone's RSVPs go with it. */
+export async function deleteInvite(inviteId: string): Promise<void> {
+  const { error } = await supabase.from('ride_invites').delete().eq('id', inviteId);
+  if (error) throw error;
+}
+
 /** Upcoming invites: the public board (crewId null) or one crew's. */
 export async function listInvites(crewId: string | null): Promise<RideInvite[]> {
   const { data, error } = await supabase.rpc('invite_list', { p_crew_id: crewId });
@@ -859,6 +890,7 @@ export async function createInvite(
     crew_id: string | null;
     route_id: string | null; // null = they just named it
     title: string;
+    description: string | null;
     meetup: string | null;
     /** The navigable point behind the meetup line, when the rider set one. */
     meetup_point: { lat: number; lng: number; place_id: string | null } | null;
@@ -884,6 +916,7 @@ export async function createInvite(
     crew_id: input.crew_id,
     route_id: routeId,
     title: input.title,
+    description: input.description,
     meetup: input.meetup,
     meetup_lat: input.meetup_point?.lat ?? null,
     meetup_lng: input.meetup_point?.lng ?? null,

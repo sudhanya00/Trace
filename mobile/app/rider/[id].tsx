@@ -1,37 +1,40 @@
+import { Feather } from '@expo/vector-icons';
+import { Camera, Map as MapLibreMap, Marker } from '@maplibre/maplibre-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { showAlert } from '../../src/components/Dialog';
 import { useCallback, useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '../../src/components/Avatar';
 import { Badges } from '../../src/components/Badges';
-import { PushButton } from '../../src/components/PushButton';
-import { Card, MonoLabel } from '../../src/components/ui';
-import { useAuth } from '../../src/lib/auth';
-import { ActivitySection } from '../../src/sections/ActivitySection';
-import { CrewsSection } from '../../src/sections/CrewsSection';
-import { Bike, bikeSubtitle, bikeTitle } from '../../src/lib/db';
-import { Camera, Map as MapLibreMap, Marker } from '@maplibre/maplibre-react-native';
-
 import { BikeMarker } from '../../src/components/BikeMarker';
+import { showAlert } from '../../src/components/Dialog';
+import { PushButton } from '../../src/components/PushButton';
+import { MonoLabel } from '../../src/components/ui';
+import { useAuth } from '../../src/lib/auth';
 import {
   follow,
   followEdges,
-  listRiderRoutes,
   livePositionOf,
   LivePosition,
   Profile,
-  Route,
+  ProfileStats,
   unfollow,
 } from '../../src/lib/db';
+import { ProfileBody, ProfileStatsRow } from '../../src/sections/ProfileBody';
 import { supabase } from '../../src/lib/supabase';
 import { color, font, layout } from '../../src/theme/tokens';
 
 type FollowState = 'none' | 'pending' | 'accepted';
 
 /**
- * Another rider. What you see obeys the visibility rules end to end: a
- * private profile shows only its handle until they accept you.
+ * Another rider — the same page as your own (item 2, 2026-07-25). Same avatar,
+ * same follow counts, same four numbers, same sections, because a rider who
+ * has learned their own profile shouldn't have to learn a second one.
+ *
+ * What differs is what only makes sense here: a Follow button where your edit
+ * and search controls sit, and the live map when they're out riding. What you
+ * can see still obeys the visibility rules end to end — a private profile
+ * shows only its handle until they accept you.
  */
 export default function RiderDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -39,24 +42,8 @@ export default function RiderDetail() {
   const [rider, setRider] = useState<Profile | null>(null);
   const [known, setKnown] = useState<{ handle: string } | null>(null);
   const [state, setState] = useState<FollowState>('none');
-  const [routes, setRoutes] = useState<Route[]>([]);
-  const [rideStats, setRideStats] = useState<{ count: number; km: number } | null>(null);
+  const [stats, setStats] = useState<ProfileStats | null>(null);
   const [live, setLive] = useState<LivePosition | null>(null);
-  const [bikes, setBikes] = useState<Bike[]>([]);
-
-  useEffect(() => {
-    if (!id) return;
-    let alive = true;
-    supabase
-      .from('bikes')
-      .select('*')
-      .eq('profile_id', id)
-      .order('created_at')
-      .then(({ data }) => alive && setBikes(data ?? []));
-    return () => {
-      alive = false;
-    };
-  }, [id]);
 
   // Riding now: poll the live point while the screen is open. RLS makes this
   // return nothing unless they accepted your follow.
@@ -95,19 +82,6 @@ export default function RiderDetail() {
         if (anyEdge) setKnown({ handle: anyEdge.handle });
       })
       .catch(() => {});
-    listRiderRoutes(id).then(setRoutes).catch(() => {});
-    supabase
-      .from('rides')
-      .select('distance_km')
-      .eq('profile_id', id)
-      .then(({ data }) => {
-        if (data) {
-          setRideStats({
-            count: data.length,
-            km: data.reduce((s, r) => s + Number(r.distance_km), 0),
-          });
-        }
-      });
   }, [id]);
 
   useEffect(load, [load]);
@@ -115,8 +89,7 @@ export default function RiderDetail() {
   const onFollow = async () => {
     if (!session || !id) return;
     try {
-      const result = await follow(session.user.id, id);
-      setState(result);
+      setState(await follow(session.user.id, id));
     } catch (e) {
       showAlert('Could not follow', (e as Error).message);
     }
@@ -133,49 +106,54 @@ export default function RiderDetail() {
 
   return (
     <ScrollView style={st.root} contentContainerStyle={st.content}>
-      <MonoLabel size={9.5}>
-        {rider
-          ? rider.visibility === 'public'
-            ? 'PUBLIC PROFILE'
-            : 'PRIVATE — FOLLOWING'
-          : 'PRIVATE PROFILE'}
-      </MonoLabel>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 }}>
-        <Avatar url={rider?.avatar_url} handle={handle} size={64} />
+      <View style={st.topBar}>
+        <MonoLabel size={9.5} style={{ letterSpacing: 2.3 }}>
+          {[rider?.home_region, rider?.visibility === 'public' ? 'PUBLIC' : 'PRIVATE']
+            .filter(Boolean)
+            .join(' — ')
+            .toUpperCase()}
+        </MonoLabel>
+        <Pressable onPress={() => router.back()} hitSlop={8} style={st.iconBtn}>
+          <Feather name="x" size={18} color={color.steel} />
+        </Pressable>
+      </View>
+
+      <View style={st.identity}>
+        <Avatar url={rider?.avatar_url} handle={handle} size={84} />
         <View style={{ flex: 1 }}>
           <Text style={st.h1} numberOfLines={1}>
             {handle ? `@${handle}` : 'Rider'}
           </Text>
-          {rider?.display_name || rider?.home_region ? (
-            <Text style={st.sub}>
-              {[rider?.display_name, rider?.home_region].filter(Boolean).join(' · ')}
+          {rider?.display_name ? <Text style={st.sub}>{rider.display_name}</Text> : null}
+          {/* Their graph, stated but not walkable: followEdges() reads your
+              own follows, and browsing someone else's isn't ours to offer. */}
+          <View style={st.followRow}>
+            <Text style={st.followText}>
+              <Text style={st.followNum}>{stats?.follower_count ?? 0}</Text> followers
             </Text>
-          ) : null}
+            <Text style={st.followText}>
+              <Text style={st.followNum}>{stats?.following_count ?? 0}</Text> following
+            </Text>
+          </View>
         </View>
       </View>
 
-      {rider && rideStats && (
-        <View style={st.strip}>
-          <View style={st.cell}>
-            <MonoLabel size={8.5}>Rides</MonoLabel>
-            <Text style={st.cellValue} allowFontScaling={false}>
-              {rideStats.count}
-            </Text>
-          </View>
-          <View style={[st.cell, st.cellDivider]}>
-            <MonoLabel size={8.5}>Distance</MonoLabel>
-            <Text style={st.cellValue} allowFontScaling={false}>
-              {Math.round(rideStats.km).toLocaleString('en-IN')}
-              <Text style={st.cellUnit}> km</Text>
-            </Text>
-          </View>
-        </View>
+      {state === 'none' && <PushButton label="Follow" onPress={onFollow} style={{ marginTop: 18 }} />}
+      {state === 'pending' && (
+        <PushButton
+          label="Requested — cancel"
+          variant="secondary"
+          onPress={onUnfollow}
+          style={{ marginTop: 18 }}
+        />
       )}
-
-      {!rider && (
-        <Text style={st.privateNote}>
-          This rider is private. Their rides and routes open up if they accept your follow.
-        </Text>
+      {state === 'accepted' && (
+        <PushButton
+          label="Following — unfollow"
+          variant="secondary"
+          onPress={onUnfollow}
+          style={{ marginTop: 18 }}
+        />
       )}
 
       {live && (
@@ -184,14 +162,15 @@ export default function RiderDetail() {
             <View style={st.liveDot} />
             <Text style={st.liveLabel}>RIDING NOW</Text>
             <Text style={st.liveWhen}>
-              updated {Math.max(1, Math.round((Date.now() - +new Date(live.updated_at)) / 60000))}m ago
+              updated{' '}
+              {Math.max(1, Math.round((Date.now() - +new Date(live.updated_at)) / 60000))}m ago
             </Text>
           </View>
           <View style={st.liveMap}>
             <MapLibreMap
-          logo={false}
-          attributionPosition={{ top: 110, right: 10 }}
-          style={{ flex: 1 }}
+              logo={false}
+              attributionPosition={{ top: 110, right: 10 }}
+              style={{ flex: 1 }}
               mapStyle="https://tiles.openfreemap.org/styles/dark"
               dragPan={false}
               touchZoom={false}
@@ -201,12 +180,7 @@ export default function RiderDetail() {
               compass={false}
               scaleBar={false}
             >
-              <Camera
-                initialViewState={{
-                  center: live.point.coordinates,
-                  zoom: 11,
-                }}
-              />
+              <Camera initialViewState={{ center: live.point.coordinates, zoom: 11 }} />
               <Marker lngLat={live.point.coordinates} anchor="center">
                 <BikeMarker type={null} />
               </Marker>
@@ -215,109 +189,45 @@ export default function RiderDetail() {
         </View>
       )}
 
-      {rider && <Badges profileId={rider.id} />}
-
-      {state === 'none' && <PushButton label="Follow" onPress={onFollow} style={{ marginTop: 24 }} />}
-      {state === 'pending' && (
-        <PushButton label="Requested — cancel" variant="slate" onPress={onUnfollow} style={{ marginTop: 24 }} />
-      )}
-      {state === 'accepted' && (
-        <PushButton label="Following — unfollow" variant="slate" onPress={onUnfollow} style={{ marginTop: 24 }} />
-      )}
-
-      {bikes.length > 0 && (
+      {rider ? (
         <>
-          <MonoLabel size={9} style={{ marginTop: 30, marginBottom: 6 }}>
-            Garage
-          </MonoLabel>
-          {bikes.map((b) => (
-            <View key={b.id} style={st.bikeRow}>
-              <Text style={st.bikeName}>{bikeTitle(b)}</Text>
-              <Text style={st.bikeSub} allowFontScaling={false}>
-                {[bikeSubtitle(b), `${Math.round(Number(b.current_odometer_km)).toLocaleString('en-IN')} km`]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </Text>
-            </View>
-          ))}
+          <Badges profileId={rider.id} />
+          <ProfileStatsRow profileId={rider.id} onStats={setStats} />
+          <ProfileBody profileId={rider.id} handle={rider.handle} />
         </>
+      ) : (
+        <Text style={st.privateNote}>
+          This rider is private. Their rides, routes and garage open up if they accept your follow.
+        </Text>
       )}
-
-      {rider && (
-        <>
-          <MonoLabel size={9} style={{ marginTop: 30, marginBottom: 6 }}>
-            Crews
-          </MonoLabel>
-          <CrewsSection profileId={rider.id} />
-          <MonoLabel size={9} style={{ marginTop: 30, marginBottom: 6 }}>
-            Activity
-          </MonoLabel>
-          <ActivitySection profileId={rider.id} handle={rider.handle} />
-        </>
-      )}
-
-      {routes.length > 0 && (
-        <>
-          <MonoLabel size={9} style={{ marginTop: 30, marginBottom: 10 }}>
-            Routes
-          </MonoLabel>
-          {routes.map((r) => (
-            <Pressable key={r.id} onPress={() => router.push(`/route/${r.id}`)}>
-              {({ pressed }) => (
-                <Card pressed={pressed} style={{ marginBottom: 10 }}>
-                  {r.photo_url && (
-                    <Image source={{ uri: r.photo_url }} style={st.routePhoto} resizeMode="cover" />
-                  )}
-                  <Text style={st.routeName}>{r.name}</Text>
-                  <Text style={st.routeSub} allowFontScaling={false}>
-                    {Number(r.distance_km).toFixed(1)} km
-                    {r.terrain_tags?.length ? ` · ${r.terrain_tags.join(' · ')}` : ''}
-                  </Text>
-                </Card>
-              )}
-            </Pressable>
-          ))}
-        </>
-      )}
-
-      <Pressable onPress={() => router.back()} style={st.back}>
-        <Text style={st.backText}>Back</Text>
-      </Pressable>
     </ScrollView>
   );
 }
 
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.void },
-  content: { paddingHorizontal: layout.screenPadding, paddingTop: 72, paddingBottom: 60 },
+  content: { paddingHorizontal: layout.screenPadding, paddingTop: 60, paddingBottom: 80 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  iconBtn: { padding: 8 },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 16 },
   h1: {
     fontFamily: font.display,
-    fontSize: 38,
+    fontSize: 27,
     color: color.white,
     textTransform: 'uppercase',
-    marginTop: 7,
-    lineHeight: 40,
+    lineHeight: 29,
   },
-  sub: { fontFamily: font.body, fontSize: 13, color: color.steel, marginTop: 8 },
-  strip: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: color.hair,
-    marginTop: 20,
+  sub: { fontFamily: font.body, fontSize: 13, color: color.steel, marginTop: 4 },
+  followRow: { flexDirection: 'row', gap: 16, marginTop: 9 },
+  followText: { fontFamily: font.body, fontSize: 12.5, color: color.steel },
+  followNum: { fontFamily: font.bodyBold, color: color.white },
+  privateNote: {
+    fontFamily: font.body,
+    fontSize: 12.5,
+    color: color.steel,
+    lineHeight: 18,
+    marginTop: 24,
   },
-  cell: { flex: 1, paddingVertical: 13 },
-  cellDivider: { borderLeftWidth: 1, borderLeftColor: color.hair, paddingLeft: 16 },
-  cellValue: {
-    fontFamily: font.displaySemi,
-    fontSize: 25,
-    color: color.white,
-    fontVariant: ['tabular-nums'],
-    marginTop: 5,
-    lineHeight: 26,
-  },
-  cellUnit: { fontSize: 12, color: color.steel },
-  privateNote: { fontFamily: font.body, fontSize: 12.5, color: color.steel, lineHeight: 18, marginTop: 20 },
   liveWrap: { marginTop: 22 },
   liveHead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 8 },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.trace },
@@ -330,18 +240,4 @@ const st = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(46,125,255,.25)',
   },
-  bikeRow: { paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: color.hair },
-  bikeName: { fontFamily: font.displaySemi, fontSize: 16, color: color.white, textTransform: 'uppercase' },
-  bikeSub: { fontFamily: font.mono, fontSize: 9, color: color.steel, marginTop: 4, fontVariant: ['tabular-nums'] },
-  routePhoto: { width: '100%', height: 120, borderRadius: 8, marginBottom: 12 },
-  routeName: { fontFamily: font.bodySemi, fontSize: 14, color: color.white },
-  routeSub: {
-    fontFamily: font.mono,
-    fontSize: 10,
-    color: color.steel,
-    marginTop: 5,
-    fontVariant: ['tabular-nums'],
-  },
-  back: { alignSelf: 'center', marginTop: 22, padding: 8 },
-  backText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
 });

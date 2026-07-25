@@ -490,6 +490,45 @@ describe('ride invites', () => {
     assert.equal(Number(row.rsvp_count), 0);
     assert.equal(row.i_am_in, false);
   });
+
+  it('a ride opens on its own page, and a crew ride only for the crew', async () => {
+    const { data } = await asha
+      .from('ride_invites')
+      .update({ description: 'test: fuel up first, back by four' })
+      .eq('id', publicInvite)
+      .select('id');
+    assert.equal(data.length, 1, 'creator can write the plan');
+
+    const open = await veer.rpc('invite_detail', { p_invite_id: publicInvite });
+    assert.equal(open.data.length, 1, 'public ride opens for any signed-in rider');
+    assert.equal(open.data[0].description, 'test: fuel up first, back by four');
+    assert.equal(open.data[0].i_created_it, false);
+    assert.ok(open.data[0].route_name, 'the route rides along');
+
+    const mine = await asha.rpc('invite_detail', { p_invite_id: publicInvite });
+    assert.equal(mine.data[0].i_created_it, true, 'creator gets the cancel control');
+
+    // A crew's ride is the crew's business — veer joined the crew above, so
+    // test the rule with someone who did not.
+    const outsider = await anon.rpc('invite_detail', { p_invite_id: crewInvite });
+    assert.ok(
+      outsider.error || outsider.data.length === 0,
+      'signed-out riders open nothing'
+    );
+
+    // Past rides still open: you follow a link to check who turned up.
+    await asha
+      .from('ride_invites')
+      .update({ starts_at: new Date(Date.now() - 3 * 86400e3).toISOString() })
+      .eq('id', publicInvite);
+    const past = await veer.rpc('invite_detail', { p_invite_id: publicInvite });
+    assert.equal(past.data.length, 1, 'a finished ride still has a page');
+    const stillListed = await veer.rpc('invite_list', { p_crew_id: null });
+    assert.ok(
+      !stillListed.data.some((i) => i.id === publicInvite),
+      'but it has left the board'
+    );
+  });
 });
 
 describe('live location and achievements', () => {

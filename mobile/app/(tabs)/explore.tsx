@@ -126,6 +126,7 @@ export default function Explore() {
               <View style={st.rideWrap}>
                 <InviteCard
                   invite={item as unknown as RideInvite}
+                  onOpen={() => router.push(`/invite/${item.id}`)}
                   onToggle={(going, answers) => toggleRsvp(item.id, going, answers)}
                 />
               </View>

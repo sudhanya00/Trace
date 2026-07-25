@@ -77,6 +77,8 @@ export function Field({
   keyboardType,
   secureTextEntry,
   autoCapitalize = 'none',
+  multiline = false,
+  maxLength,
   style,
 }: {
   label: string;
@@ -86,6 +88,8 @@ export function Field({
   keyboardType?: KeyboardTypeOptions;
   secureTextEntry?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  multiline?: boolean;
+  maxLength?: number;
   style?: ViewStyle;
 }) {
   const [focused, setFocused] = useState(false);
@@ -100,9 +104,11 @@ export function Field({
         keyboardType={keyboardType}
         secureTextEntry={secureTextEntry}
         autoCapitalize={autoCapitalize}
+        multiline={multiline}
+        maxLength={maxLength}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        style={[st.input, focused && st.inputFocused]}
+        style={[st.input, multiline && st.inputMulti, focused && st.inputFocused]}
       />
     </View>
   );
@@ -241,6 +247,7 @@ const st = StyleSheet.create({
     fontFamily: font.body,
     fontSize: 15,
   },
+  inputMulti: { minHeight: 108, textAlignVertical: 'top', lineHeight: 21, paddingTop: 13 },
   inputFocused: {
     borderColor: color.steel,
   },

@@ -253,6 +253,7 @@ export default function CrewRoom() {
                 <InviteCard
                   key={i.id}
                   invite={i}
+                  onOpen={() => router.push(`/invite/${i.id}`)}
                   onToggle={async (going, answers) => {
                     if (!session) return;
                     await rsvpInvite(session.user.id, i.id, going, answers).catch(() => {});

@@ -51,6 +51,7 @@ export default function NewInvite() {
   const [myCrews, setMyCrews] = useState<Crew[]>([]);
   const [scope, setScope] = useState<string | null>(presetCrew ?? null); // null = public board
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [date, setDate] = useState(new Date(Date.now() + 86400e3).toISOString().slice(0, 10));
   const [time, setTime] = useState('06:00');
   const [meetup, setMeetup] = useState('');
@@ -100,6 +101,7 @@ export default function NewInvite() {
         // adhoc route from what was typed here.
         route_id: route?.id ?? null,
         title: title.trim(),
+        description: description.trim() || null,
         meetup: meetup.trim() || null,
         meetup_point: meetPoint
           ? { lat: meetPoint.lat, lng: meetPoint.lng, place_id: meetPoint.place_id }
@@ -160,6 +162,19 @@ export default function NewInvite() {
           onChangeText={setTitle}
           placeholder="Dawn run to Sonamarg"
           autoCapitalize="sentences"
+          style={{ marginTop: 16 }}
+        />
+        {/* The title names the ride; this is the plan. Fuel stops, the chai
+            break at Patnitop, when you're turning back — the things riders
+            ask in the chat anyway. */}
+        <Field
+          label="The plan (optional)"
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Fuel up before we leave. Breakfast at Patnitop, back by four."
+          autoCapitalize="sentences"
+          multiline
+          maxLength={2000}
           style={{ marginTop: 16 }}
         />
         <View style={{ flexDirection: 'row', gap: 14, marginTop: 16 }}>

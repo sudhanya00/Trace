@@ -53,22 +53,108 @@ function myAnswers(i: RideInvite): string {
 }
 
 /**
+ * The questions a ride asks before you join. Lives apart from the card
+ * because the same ride can be joined from the card or from its detail page,
+ * and a rider should be asked the same things either way.
+ */
+export function JoinSheet({
+  invite,
+  visible,
+  onClose,
+  onConfirm,
+}: {
+  invite: RideInvite;
+  visible: boolean;
+  onClose: () => void;
+  onConfirm: (answers: RsvpAnswers) => void;
+}) {
+  const asks = inviteAsks(invite);
+  const [bike, setBike] = useState<BikeType | null>(invite.my_bike_category);
+  const [gear, setGear] = useState<boolean | null>(invite.my_has_gear);
+  const [exp, setExp] = useState<Experience | null>(invite.my_experience);
+
+  // Every question the ride asked needs an answer before the RSVP counts.
+  const complete =
+    (!asks.includes('bike_category') || bike != null) &&
+    (!asks.includes('has_gear') || gear != null) &&
+    (!asks.includes('experience') || exp != null);
+
+  return (
+    <Sheet visible={visible} onClose={onClose} label={invite.title} title="Before you join">
+      {asks.includes('bike_category') && (
+        <ChipSelect
+          label="What are you riding?"
+          options={BIKE_TYPES}
+          value={bike}
+          onChange={setBike}
+          style={{ marginBottom: 20 }}
+        />
+      )}
+      {asks.includes('has_gear') && (
+        <YesNo
+          label={
+            invite.gear_required ? 'Full gear is required — do you have it?' : 'Riding in full gear?'
+          }
+          value={gear}
+          onChange={setGear}
+          style={{ marginBottom: 20 }}
+        />
+      )}
+      {asks.includes('experience') && (
+        <ChipSelect
+          label="How much riding have you done?"
+          options={EXPERIENCE}
+          value={exp}
+          onChange={setExp}
+          style={{ marginBottom: 20 }}
+        />
+      )}
+
+      {/* An honest no is useful information, not a rejection. The ride's own
+          requirements are on the card above; the rider decides. */}
+      {invite.gear_required && gear === false && (
+        <Text style={st.warn}>
+          This ride asks for full gear. You can still join — the crew will know to expect you
+          without it.
+        </Text>
+      )}
+
+      <PushButton
+        label={invite.i_am_in ? 'Save' : "I'm in"}
+        onPress={() =>
+          onConfirm({
+            ...(asks.includes('bike_category') ? { bike_category: bike } : {}),
+            ...(asks.includes('has_gear') ? { has_gear: gear } : {}),
+            ...(asks.includes('experience') ? { experience: exp } : {}),
+          })
+        }
+        disabled={!complete}
+        style={{ marginTop: 4, marginBottom: 8 }}
+      />
+    </Sheet>
+  );
+}
+
+/**
  * One planned ride, anywhere it appears: board, crew room, or explore feed.
  * Joining asks whatever the creator asked (item 7, 2026-07-21) — and nothing
  * more, because a question the ride didn't pose is friction with no payoff.
+ *
+ * The card is a summary and a yes/no. Everything else the ride knows — the
+ * plan, the road, who else is coming — lives a tap away on its own page
+ * (item 1, 2026-07-25), so the card stays readable in a feed.
  */
 export function InviteCard({
   invite,
   onToggle,
+  onOpen,
 }: {
   invite: RideInvite;
   onToggle: (going: boolean, answers?: RsvpAnswers) => void;
+  onOpen?: () => void;
 }) {
   const asks = inviteAsks(invite);
   const [sheet, setSheet] = useState(false);
-  const [bike, setBike] = useState<BikeType | null>(invite.my_bike_category);
-  const [gear, setGear] = useState<boolean | null>(invite.my_has_gear);
-  const [exp, setExp] = useState<Experience | null>(invite.my_experience);
 
   const reqs = requirements(invite);
   const answered = myAnswers(invite);
@@ -79,24 +165,14 @@ export function InviteCard({
     setSheet(true);
   };
 
-  // Every question the ride asked needs an answer before the RSVP counts.
-  const complete =
-    (!asks.includes('bike_category') || bike != null) &&
-    (!asks.includes('has_gear') || gear != null) &&
-    (!asks.includes('experience') || exp != null);
-
-  const confirm = () => {
+  const confirm = (answers: RsvpAnswers) => {
     setSheet(false);
-    onToggle(true, {
-      ...(asks.includes('bike_category') ? { bike_category: bike } : {}),
-      ...(asks.includes('has_gear') ? { has_gear: gear } : {}),
-      ...(asks.includes('experience') ? { experience: exp } : {}),
-    });
+    onToggle(true, answers);
   };
 
-  return (
-    <>
-      <Card active={invite.i_am_in} style={{ marginBottom: 10 }}>
+  const body = (down: boolean) => (
+    <Card active={invite.i_am_in} pressed={down} style={{ marginBottom: 10 }}>
+      <>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
           {/* A planned ride with a mapped route shows the road itself (§4.4) —
               a shape beats a title string. Adhoc routes have no geometry, so
@@ -164,57 +240,26 @@ export function InviteCard({
             <Text style={st.mine}>You: {answered} — tap to change</Text>
           </Pressable>
         ) : null}
-      </Card>
+      </>
+    </Card>
+  );
 
-      <Sheet
+  return (
+    <>
+      {/* The card opens the ride; the controls inside it still win their own
+          taps, so a quick RSVP stays one press from the feed. */}
+      {onOpen ? (
+        <Pressable onPress={onOpen}>{({ pressed }) => body(pressed)}</Pressable>
+      ) : (
+        body(false)
+      )}
+
+      <JoinSheet
+        invite={invite}
         visible={sheet}
         onClose={() => setSheet(false)}
-        label={invite.title}
-        title="Before you join"
-      >
-        {asks.includes('bike_category') && (
-          <ChipSelect
-            label="What are you riding?"
-            options={BIKE_TYPES}
-            value={bike}
-            onChange={setBike}
-            style={{ marginBottom: 20 }}
-          />
-        )}
-        {asks.includes('has_gear') && (
-          <YesNo
-            label={invite.gear_required ? 'Full gear is required — do you have it?' : 'Riding in full gear?'}
-            value={gear}
-            onChange={setGear}
-            style={{ marginBottom: 20 }}
-          />
-        )}
-        {asks.includes('experience') && (
-          <ChipSelect
-            label="How much riding have you done?"
-            options={EXPERIENCE}
-            value={exp}
-            onChange={setExp}
-            style={{ marginBottom: 20 }}
-          />
-        )}
-
-        {/* An honest no is useful information, not a rejection. The ride's own
-            requirements are on the card above; the rider decides. */}
-        {invite.gear_required && gear === false && (
-          <Text style={st.warn}>
-            This ride asks for full gear. You can still join — the crew will know to expect you
-            without it.
-          </Text>
-        )}
-
-        <PushButton
-          label={invite.i_am_in ? 'Save' : "I'm in"}
-          onPress={confirm}
-          disabled={!complete}
-          style={{ marginTop: 4, marginBottom: 8 }}
-        />
-      </Sheet>
+        onConfirm={confirm}
+      />
     </>
   );
 }

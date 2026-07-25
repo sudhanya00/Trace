@@ -3,54 +3,31 @@ import { showAlert } from '../../src/components/Dialog';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { File } from 'expo-file-system';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { router } from 'expo-router';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '../../src/components/Avatar';
 import { Badges } from '../../src/components/Badges';
-import { NumberTicker } from '../../src/components/NumberTicker';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
-import { profileStats, ProfileStats, updateProfile, uploadAvatar } from '../../src/lib/db';
-import { ActivitySection } from '../../src/sections/ActivitySection';
-import { CrewsSection } from '../../src/sections/CrewsSection';
-import { GarageSection } from '../../src/sections/GarageSection';
-import { RidesSection } from '../../src/sections/RidesSection';
+import { ProfileStats, updateProfile, uploadAvatar } from '../../src/lib/db';
+import { ProfileBody, ProfileStatsRow } from '../../src/sections/ProfileBody';
 import { color, font, layout } from '../../src/theme/tokens';
-
-const SECTIONS = ['posts', 'rides', 'crews', 'garage'] as const;
-type Section = (typeof SECTIONS)[number];
-
-function compact(n: number): string {
-  if (n >= 100000) return `${Math.round(n / 1000)}k`;
-  if (n >= 10000) return `${(n / 1000).toFixed(1)}k`;
-  return String(Math.round(n));
-}
 
 /**
  * The profile, rebuilt to the shape riders already know (item 9, 2026-07-21):
  * face and handle, the follow graph right under it, four numbers that say what
- * you've done, then POSTS · RIDES · CREWS · GARAGE. Finding riders moved here
- * from the Riders tab — searching for people belongs where people are.
+ * you've done, then the sections. Finding riders moved here from the Riders
+ * tab — searching for people belongs where people are.
+ *
+ * Everything below the identity block is shared with the rider page, so your
+ * profile and theirs are literally the same layout (item 2, 2026-07-25).
  */
 export default function ProfileTab() {
   const { session, profile, refreshProfile } = useAuth();
-  const [section, setSection] = useState<Section>('posts');
   const [stats, setStats] = useState<ProfileStats | null>(null);
   const [uploading, setUploading] = useState(false);
-
-  useFocusEffect(
-    useCallback(() => {
-      let alive = true;
-      if (profile) {
-        profileStats(profile.id).then((s) => alive && setStats(s)).catch(() => {});
-      }
-      return () => {
-        alive = false;
-      };
-    }, [profile?.id])
-  );
 
   const pickAvatar = async () => {
     if (!session) return;
@@ -137,54 +114,9 @@ export default function ProfileTab() {
 
       <Badges profileId={profile.id} />
 
-      {/* Four numbers, no units in the value — the label carries the unit.
-          They count up on first view (§3.5). */}
-      <View style={st.statRow}>
-        <Stat label="Kms" value={stats?.total_km ?? 0} format={compact} first />
-        <Stat label="Rides" value={stats?.ride_count ?? 0} />
-        <Stat label="Bikes" value={stats?.bike_count ?? 0} />
-        <Stat label="Crews" value={stats?.crew_count ?? 0} />
-      </View>
-
-      <View style={st.tabsRow}>
-        {SECTIONS.map((s) => (
-          <Pressable key={s} onPress={() => setSection(s)} style={st.tabBtn}>
-            <Text style={[st.tabText, section === s && st.tabTextOn]}>{s.toUpperCase()}</Text>
-            {section === s && <View style={st.tabUnderline} />}
-          </Pressable>
-        ))}
-      </View>
-
-      <View style={{ marginTop: 18 }}>
-        {section === 'posts' && (
-          <ActivitySection profileId={profile.id} handle={profile.handle} own />
-        )}
-        {section === 'rides' && <RidesSection profileId={profile.id} />}
-        {section === 'crews' && <CrewsSection profileId={profile.id} own />}
-        {section === 'garage' && <GarageSection />}
-      </View>
+      <ProfileStatsRow profileId={profile.id} onStats={setStats} />
+      <ProfileBody profileId={profile.id} handle={profile.handle} own />
     </ScrollView>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  format,
-  first = false,
-}: {
-  label: string;
-  value: number;
-  format?: (n: number) => string;
-  first?: boolean;
-}) {
-  return (
-    <View style={[st.stat, !first && st.statDivider]}>
-      <NumberTicker value={value} format={format} style={st.statValue} />
-      <MonoLabel size={8} style={{ marginTop: 4 }}>
-        {label}
-      </MonoLabel>
-    </View>
   );
 }
 
@@ -218,38 +150,4 @@ const st = StyleSheet.create({
   followRow: { flexDirection: 'row', gap: 16, marginTop: 9 },
   followText: { fontFamily: font.body, fontSize: 12.5, color: color.steel },
   followNum: { fontFamily: font.bodyBold, color: color.white },
-  statRow: {
-    flexDirection: 'row',
-    marginTop: 24,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: color.hair,
-  },
-  stat: { flex: 1, alignItems: 'center', paddingVertical: 14 },
-  statDivider: { borderLeftWidth: 1, borderLeftColor: color.hair },
-  statValue: {
-    fontFamily: font.displaySemi,
-    fontSize: 22,
-    color: color.white,
-    fontVariant: ['tabular-nums'],
-    lineHeight: 24,
-  },
-  tabsRow: {
-    flexDirection: 'row',
-    marginTop: 22,
-    borderBottomWidth: 1,
-    borderBottomColor: color.hair,
-  },
-  // Four equal columns across the full width, rather than bunched left.
-  tabBtn: { flex: 1, paddingVertical: 10, alignItems: 'center' },
-  tabText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.6, color: color.dim },
-  tabTextOn: { color: color.white },
-  tabUnderline: {
-    position: 'absolute',
-    bottom: -1,
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: color.white,
-  },
 });

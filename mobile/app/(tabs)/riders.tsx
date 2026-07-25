@@ -159,7 +159,12 @@ export default function Riders() {
         ) : (
           <>
             {board.map((i) => (
-              <InviteCard key={i.id} invite={i} onToggle={(g, a) => toggleRsvp(i, g, a)} />
+              <InviteCard
+                key={i.id}
+                invite={i}
+                onOpen={() => router.push(`/invite/${i.id}`)}
+                onToggle={(g, a) => toggleRsvp(i, g, a)}
+              />
             ))}
             <PushButton
               label="Plan a ride"

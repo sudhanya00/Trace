@@ -132,7 +132,12 @@ export default function CrewAbout() {
           <Text style={st.empty}>Nothing planned yet.</Text>
         ) : (
           invites.map((i) => (
-            <InviteCard key={i.id} invite={i} onToggle={(g, a) => toggleRsvp(i, g, a)} />
+            <InviteCard
+              key={i.id}
+              invite={i}
+              onOpen={() => router.push(`/invite/${i.id}`)}
+              onToggle={(g, a) => toggleRsvp(i, g, a)}
+            />
           ))
         )}
       </View>
