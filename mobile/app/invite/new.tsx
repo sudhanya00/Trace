@@ -304,6 +304,16 @@ export default function NewInvite() {
             setPickingRoute(false);
           }}
         />
+        {/* The way out of "none of these": draw the road you mean. */}
+        <PickRow
+          label="Plan a new route"
+          sub="Pick a start and end — and a via point to force a particular road"
+          on={false}
+          onPress={() => {
+            setPickingRoute(false);
+            router.push('/route/plan');
+          }}
+        />
         {routes.curated.length > 0 && (
           <MonoLabel size={8.5} style={{ marginTop: 18, marginBottom: 4 }}>
             Curated

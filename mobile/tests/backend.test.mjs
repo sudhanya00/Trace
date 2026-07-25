@@ -1163,6 +1163,60 @@ describe('route standardization', () => {
     assert.ok(Number(rowB.route_distance_km) > 2, 'and its distance');
   });
 
+  it('a planned route stores waypoints, not a Google line', async () => {
+    // What createPlannedRoute() writes: the rider's chosen points, no geometry.
+    // Google's terms restrict storing their computed lines, so geom stays null
+    // and the line is recomputed from these on demand.
+    const { data: planned, error } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'public',
+        geom_provider: 'google',
+        name: 'test: Jammu to Patnitop the old way',
+        region: 'Jammu & Kashmir',
+        difficulty: 'moderate',
+        distance_km: 108.7,
+        waypoints: [
+          { lat: 32.7266, lng: 74.857, place_id: 'ChIJ_test_jammu', label: 'Jammu' },
+          { lat: 32.92, lng: 75.14, place_id: null, label: 'the old road' },
+          { lat: 33.0836, lng: 75.331, place_id: 'ChIJ_test_patnitop', label: 'Patnitop' },
+        ],
+        start_label: 'Jammu',
+        end_label: 'Patnitop',
+      })
+      .select('id, geom, waypoints, geom_provider, distance_km, start_label, end_label')
+      .single();
+    assert.equal(error, null);
+    assert.equal(planned.geom, null, 'no Google geometry is retained');
+    assert.equal(planned.waypoints.length, 3, 'the waypoints define the route');
+    assert.equal(planned.waypoints[1].label, 'the old road', 'via point survives');
+    assert.equal(planned.geom_provider, 'google');
+    assert.equal(planned.start_label, 'Jammu');
+    assert.ok(Number(planned.distance_km) > 100, 'distance is a fact about the road, kept');
+  });
+
+  it('a route must be drawable: geometry, waypoints, or adhoc', async () => {
+    // A user route with neither is unusable — nothing could ever draw it.
+    const undrawable = await asha.from('routes').insert({
+      profile_id: ashaId,
+      source: 'user',
+      visibility: 'public',
+      name: 'test: undrawable route',
+    });
+    assert.ok(undrawable.error, 'a user route with no geom and no waypoints is refused');
+
+    // An adhoc one is the legitimate exception: a name and a meeting point.
+    const adhocOk = await asha.from('routes').insert({
+      profile_id: ashaId,
+      source: 'adhoc',
+      visibility: 'public',
+      name: 'test: adhoc needs neither',
+    });
+    assert.equal(adhocOk.error, null, 'adhoc routes need neither');
+  });
+
   it('a meetup can carry a real point, and never half of one', async () => {
     const routeId = await adhocRoute(asha, ashaId, 'test: meetup point ride');
     const { error } = await asha.from('ride_invites').insert({

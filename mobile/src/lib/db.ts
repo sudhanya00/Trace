@@ -327,6 +327,52 @@ export async function createAdhocRoute(
   return data.id;
 }
 
+/**
+ * Save a planned route. The WAYPOINTS are what persist — the rider's own
+ * coordinates plus place IDs, which Google's terms permit indefinitely. The
+ * computed line is never stored; it's recomputed from these whenever the route
+ * needs drawing. distance_km is kept because it's a fact about the road, not
+ * Google's content, and a route list without distances is useless.
+ */
+export async function createPlannedRoute(
+  userId: string,
+  input: {
+    name: string;
+    region: string | null;
+    difficulty: Difficulty | null;
+    waypoints: { lat: number; lng: number; place_id: string | null; label: string }[];
+    distance_km: number;
+    crew_id: string | null;
+  }
+): Promise<Route> {
+  const first = input.waypoints[0];
+  const last = input.waypoints[input.waypoints.length - 1];
+  const { data, error } = await supabase
+    .from('routes')
+    .insert({
+      profile_id: userId,
+      source: 'user',
+      visibility: input.crew_id ? 'crew' : 'public',
+      crew_id: input.crew_id,
+      geom_provider: 'google',
+      name: input.name,
+      region: input.region,
+      difficulty: input.difficulty,
+      waypoints: input.waypoints,
+      distance_km: input.distance_km,
+      // Endpoint labels so "Jammu → Patnitop" renders without a lookup —
+      // several routes share endpoints and differ only in the road between.
+      start_label: first?.label ?? null,
+      end_label: last?.label ?? null,
+      start_place_id: first?.place_id ?? null,
+      end_place_id: last?.place_id ?? null,
+    })
+    .select(ROUTE_COLS)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 /** Routes a rider can pick from when planning: their own, then curated. */
 export async function pickableRoutes(userId: string): Promise<{
   mine: Route[];
