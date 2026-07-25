@@ -155,8 +155,12 @@ export const layout = {
   cardRadius: radius.card,
   /** Record screen and any in-ride control: minimum touch target (§8 ergonomics). */
   rideTouchTarget: 64,
-  /** The record button. Oversized on purpose — gloves at 3,000 m. Not a mistake. */
-  recordButtonHeight: 76,
+  /**
+   * The record button. Still generous for gloved hands, but trimmed from 76
+   * once the map arrived — the screen's most useful surface shouldn't lose
+   * space to a button that was already comfortably over the touch minimum.
+   */
+  recordButtonHeight: 62,
 } as const;
 
 /**

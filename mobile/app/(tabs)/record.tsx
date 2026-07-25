@@ -20,7 +20,6 @@ import {
 import { Feather } from '@expo/vector-icons';
 
 import { Odometer } from '../../src/components/Odometer';
-import { HoldToConfirm } from '../../src/components/HoldToConfirm';
 import { PushButton } from '../../src/components/PushButton';
 import { LocationPicker, PickedPlace } from '../../src/components/LocationPicker';
 import { RecordMap } from '../../src/components/RecordMap';
@@ -90,6 +89,7 @@ export default function Record() {
   const [destinationLine, setDestinationLine] = useState<[number, number][] | null>(null);
   const [pickingDest, setPickingDest] = useState(false);
   const [routing, setRouting] = useState(false);
+  const [recentre, setRecentre] = useState(0);
 
   useEffect(() => {
     AsyncStorage.getItem(LIVE_SHARE_KEY).then((v) => setLiveShare(v === '1')).catch(() => {});
@@ -316,7 +316,7 @@ export default function Record() {
   return (
     <View style={st.root}>
       {/* map bed: real recorded points behind everything, scrimmed (§8) */}
-      <RecordMap points={trackPoints} destination={destinationLine} />
+      <RecordMap points={trackPoints} destination={destinationLine} recentreKey={recentre} />
 
       {/* top row: live indicator / GPS status */}
       <View style={st.top}>
@@ -346,7 +346,48 @@ export default function Record() {
         )}
       </View>
 
+      {/* Where to — at the top, out of the keyboard's way, and translucent so
+          it sits on the map rather than blocking it. */}
+      {phase.kind !== 'interrupted' && (
+        <Pressable onPress={() => setPickingDest(true)} style={st.destRow}>
+          <Feather
+            name={destination ? 'flag' : 'search'}
+            size={15}
+            color={destination ? accent.trace : color.steel}
+          />
+          <Text style={[st.destText, destination && { color: color.white }]} numberOfLines={1}>
+            {routing
+              ? 'Finding the way…'
+              : destination
+                ? destination.label
+                : 'Heading somewhere?'}
+          </Text>
+          {destination ? (
+            <Pressable
+              onPress={() => {
+                setDestination(null);
+                setDestinationLine(null);
+              }}
+              hitSlop={10}
+            >
+              <Feather name="x" size={15} color={color.steel} />
+            </Pressable>
+          ) : null}
+        </Pressable>
+      )}
+
       <View style={{ flex: 1 }} />
+
+      {/* Snap back to the rider after panning the map away. */}
+      {trackPoints.length > 0 && (
+        <Pressable
+          onPress={() => setRecentre((k) => k + 1)}
+          style={st.recentre}
+          hitSlop={8}
+        >
+          <Feather name="crosshair" size={17} color={color.white} />
+        </Pressable>
+      )}
 
       {/* the odometer is the screen */}
       <View style={{ paddingHorizontal: layout.screenPadding }}>
@@ -495,52 +536,18 @@ export default function Record() {
         </View>
       )}
 
-      {/* Where to. Available before a ride and during one, because riders
-          decide mid-route as often as they plan ahead. */}
-      {phase.kind !== 'interrupted' && (
-        <Pressable onPress={() => setPickingDest(true)} style={st.destRow}>
-          <Feather
-            name={destination ? 'flag' : 'search'}
-            size={15}
-            color={destination ? accent.trace : color.steel}
-          />
-          <Text style={[st.destText, destination && { color: color.white }]} numberOfLines={1}>
-            {routing
-              ? 'Finding the way…'
-              : destination
-                ? destination.label
-                : 'Heading somewhere? Draw the line'}
-          </Text>
-          {destination ? (
-            <Pressable
-              onPress={() => {
-                setDestination(null);
-                setDestinationLine(null);
-              }}
-              hitSlop={10}
-            >
-              <Feather name="x" size={15} color={color.steel} />
-            </Pressable>
-          ) : (
-            <Feather name="chevron-right" size={15} color={color.dim} />
-          )}
-        </Pressable>
-      )}
-
       {/* control — oversized on purpose: gloves (§8) */}
       <View style={st.ctrl}>
         {phase.kind === 'recording' ? (
           <>
             <PushButton label="Finish ride" onPress={onFinish} height={layout.recordButtonHeight} />
-            {/* Finish keeps the ride; this throws it away. Held, then
-                confirmed — never one tap away from losing a track. */}
-            <View style={{ marginTop: 12 }}>
-              <HoldToConfirm
-                label="Hold to cancel ride"
-                holdingLabel="Keep holding to cancel…"
-                onConfirm={onCancelHeld}
-              />
-            </View>
+            {/* Cancelling destroys a track that can't be recovered, so it stays
+                deliberate — but it no longer needs a full bar to do that. A
+                small target plus a confirm that names the distance is two
+                intentional acts, and it gives the map back its space. */}
+            <Pressable onPress={onCancelHeld} style={st.cancelRide} hitSlop={10}>
+              <Text style={st.cancelRideText}>Cancel ride</Text>
+            </Pressable>
           </>
         ) : phase.kind === 'idle' ? (
           <PushButton
@@ -703,15 +710,31 @@ const st = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginHorizontal: layout.screenPadding,
-    marginBottom: 12,
+    marginTop: 12,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderWidth: 1,
-    borderColor: color.hair,
+    borderColor: 'rgba(255,255,255,0.10)',
     borderRadius: 10,
-    backgroundColor: 'rgba(16,16,16,0.9)',
+    // Translucent: it floats on the map instead of covering it.
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
   destText: { flex: 1, fontFamily: font.body, fontSize: 13, color: color.steel },
+  recentre: {
+    alignSelf: 'flex-end',
+    marginRight: layout.screenPadding,
+    marginBottom: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  cancelRide: { alignSelf: 'center', marginTop: 10, padding: 8 },
+  cancelRideText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
   linkedRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,4 +1,5 @@
 import { Camera, GeoJSONSource, Layer, Map as MapLibreMap } from '@maplibre/maplibre-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -28,10 +29,13 @@ type Pt = { lat: number; lng: number; segment_seq: number };
 export function RecordMap({
   points,
   destination,
+  recentreKey = 0,
 }: {
   points: Pt[];
   /** A line to somewhere, when the rider set one. Drawn behind the ridden track. */
   destination?: [number, number][] | null;
+  /** Bump to snap the camera back to the rider after they've panned away. */
+  recentreKey?: number;
 }) {
   // One line per segment. A gap is drawn as nothing at all.
   const segments = useMemo(() => {
@@ -48,16 +52,22 @@ export function RecordMap({
   const centre = head ?? (destination?.[0] ?? null);
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+    // Interactive: pan and pinch are what anyone expects of a map, and a
+    // rider checking what's ahead needs to move it. Only the scrim below
+    // ignores touches; the map itself takes them.
+    <View style={StyleSheet.absoluteFill}>
       <MapLibreMap
         logo={false}
         attributionPosition={{ top: 8, left: 8 }}
         style={{ flex: 1 }}
         mapStyle={STYLE_URL}
-        compass={false}
+        compass
         scaleBar={false}
       >
-        {centre && <Camera center={centre} zoom={14} />}
+        {/* Keyed on `recentre` so the camera follows the ride only when it
+            changes — otherwise every position update would yank the map back
+            and fight the rider trying to look ahead. */}
+        {centre && <Camera key={`c-${recentreKey}`} center={centre} zoom={14} />}
 
         {/* Where you're headed, if you said. Deliberately dimmer than the
             ridden line — it's a suggestion, not a record of anything. */}
@@ -138,20 +148,19 @@ export function RecordMap({
         )}
       </MapLibreMap>
 
-      {/* The numbers have to stay dominant: a scrim from the bottom so the
-          odometer never fights the map for contrast. */}
-      <View style={st.scrim} pointerEvents="none" />
+      {/* Just enough shade under the numbers to keep them legible — a soft
+          fade at the bottom, not the sheet of black that was covering most of
+          the map. */}
+      <LinearGradient
+        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.88)']}
+        locations={[0, 0.45, 1]}
+        style={st.fade}
+        pointerEvents="none"
+      />
     </View>
   );
 }
 
 const st = StyleSheet.create({
-  scrim: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '58%',
-    backgroundColor: 'rgba(0,0,0,0.72)',
-  },
+  fade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '34%' },
 });

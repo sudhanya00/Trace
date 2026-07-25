@@ -1,7 +1,17 @@
 import { ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useKeyboardHeight } from '../lib/useKeyboardHeight';
 import { color, font, layout } from '../theme/tokens';
 import { MonoLabel } from './ui';
 
@@ -24,6 +34,7 @@ export function Sheet({
   children: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const kb = useKeyboardHeight();
   return (
     <Modal
       visible={visible}
@@ -32,9 +43,21 @@ export function Sheet({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={st.root}>
+      {/* Without this the keyboard covers the sheet — which is fatal for a
+          sheet whose whole purpose is a search field. */}
+      <KeyboardAvoidingView
+        style={st.root}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <Pressable style={st.backdrop} onPress={onClose} />
-        <View style={[st.sheet, { paddingBottom: insets.bottom + 20 }]}>
+        <View
+          style={[
+            st.sheet,
+            // Android doesn't resize under edge-to-edge, so the sheet is
+            // lifted by the measured keyboard height instead.
+            { paddingBottom: insets.bottom + 20, marginBottom: Platform.OS === 'android' ? kb : 0 },
+          ]}
+        >
           <View style={st.handle} />
           {label ? <MonoLabel size={8.5} style={{ marginBottom: 6 }}>{label}</MonoLabel> : null}
           {title ? <Text style={st.title}>{title}</Text> : null}
@@ -46,7 +69,7 @@ export function Sheet({
             {children}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
