@@ -15,22 +15,11 @@ import {
   RsvpAnswers,
 } from '../lib/db';
 import { TrackThumb } from './TrackThumb';
+import { whenLabel } from '../lib/when';
 import { accent, color, font } from '../theme/tokens';
 import { PushButton } from './PushButton';
 import { Sheet } from './Sheet';
 import { Card, ChipSelect, MonoLabel, YesNo } from './ui';
-
-function fmtWhen(iso: string): string {
-  const d = new Date(iso);
-  const days = Math.floor((+d - Date.now()) / 86400000);
-  const day =
-    days <= 0
-      ? 'Today'
-      : days === 1
-        ? 'Tomorrow'
-        : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
-  return `${day} · ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-}
 
 /** The ride's shape, read back as a line of requirements. */
 function requirements(i: RideInvite): string[] {
@@ -182,7 +171,7 @@ export function InviteCard({
           ) : null}
           <View style={{ flex: 1 }}>
             <MonoLabel size={8.5} style={{ letterSpacing: 1.4 }}>
-              {fmtWhen(invite.starts_at).toUpperCase()}
+              {whenLabel(invite.starts_at).toUpperCase()}
               {invite.region ? ` — ${invite.region.toUpperCase()}` : ''}
             </MonoLabel>
             <Text style={st.title}>{invite.title}</Text>

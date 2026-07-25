@@ -25,12 +25,16 @@ export function Sheet({
   onClose,
   label,
   title,
+  scroll = true,
   children,
 }: {
   visible: boolean;
   onClose: () => void;
   label?: string;
   title?: string;
+  /** Off when the contents scroll themselves — nested vertical scrollers
+   *  fight each other for the gesture, and the wheels always lose. */
+  scroll?: boolean;
   children: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -61,13 +65,17 @@ export function Sheet({
           <View style={st.handle} />
           {label ? <MonoLabel size={8.5} style={{ marginBottom: 6 }}>{label}</MonoLabel> : null}
           {title ? <Text style={st.title}>{title}</Text> : null}
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            style={{ flexGrow: 0 }}
-          >
-            {children}
-          </ScrollView>
+          {scroll ? (
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              style={{ flexGrow: 0 }}
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            children
+          )}
         </View>
       </KeyboardAvoidingView>
     </Modal>

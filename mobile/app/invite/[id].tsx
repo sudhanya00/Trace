@@ -22,21 +22,8 @@ import {
   rsvpInvite,
 } from '../../src/lib/db';
 import { googleMapsPointUrl } from '../../src/lib/gpx';
+import { whenLabel } from '../../src/lib/when';
 import { accent, color, font, layout, status, surface } from '../../src/theme/tokens';
-
-function fmtWhen(iso: string): string {
-  const d = new Date(iso);
-  const days = Math.floor((+d - Date.now()) / 86400000);
-  const day =
-    days < 0
-      ? d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
-      : days === 0
-        ? 'Today'
-        : days === 1
-          ? 'Tomorrow'
-          : d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
-  return `${day} · ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-}
 
 /**
  * A planned ride, opened.
@@ -121,7 +108,7 @@ export default function InviteDetailScreen() {
       <View style={st.head}>
         <View style={{ flex: 1, paddingRight: 12 }}>
           <MonoLabel size={9} style={{ letterSpacing: 1.6 }}>
-            {[fmtWhen(ride.starts_at).toUpperCase(), ride.crew_name?.toUpperCase() ?? 'PUBLIC BOARD']
+            {[whenLabel(ride.starts_at).toUpperCase(), ride.crew_name?.toUpperCase() ?? 'PUBLIC BOARD']
               .filter(Boolean)
               .join(' — ')}
           </MonoLabel>

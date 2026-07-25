@@ -16,7 +16,9 @@ import { Feather } from '@expo/vector-icons';
 import { LocationPicker, PickedPlace } from '../../src/components/LocationPicker';
 import { PushButton } from '../../src/components/PushButton';
 import { Sheet } from '../../src/components/Sheet';
+import { WhenPicker } from '../../src/components/WhenPicker';
 import { ChipSelect, Field, MonoLabel, YesNo } from '../../src/components/ui';
+import { snapToSlot } from '../../src/lib/when';
 import { useAuth } from '../../src/lib/auth';
 import {
   BikeType,
@@ -52,8 +54,12 @@ export default function NewInvite() {
   const [scope, setScope] = useState<string | null>(presetCrew ?? null); // null = public board
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [date, setDate] = useState(new Date(Date.now() + 86400e3).toISOString().slice(0, 10));
-  const [time, setTime] = useState('06:00');
+  // Tomorrow at six: the default a rider would have typed anyway.
+  const [startsAt, setStartsAt] = useState(() => {
+    const d = new Date(Date.now() + 86400e3);
+    d.setHours(6, 0, 0, 0);
+    return snapToSlot(d);
+  });
   const [meetup, setMeetup] = useState('');
   const [region, setRegion] = useState(profile?.home_region ?? '');
   const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
@@ -87,9 +93,9 @@ export default function NewInvite() {
     if (!title.trim()) setTitle(r.name);
   };
 
-  const startsAt = new Date(`${date}T${time}:00`);
-  const valid =
-    title.trim().length >= 3 && !Number.isNaN(+startsAt) && +startsAt > Date.now() - 3600e3;
+  // The picker cannot produce a past time, so this is only guarding against a
+  // sheet left open across the moment the ride was due.
+  const valid = title.trim().length >= 3 && +startsAt > Date.now();
 
   const submit = async () => {
     if (!session || !valid) return;
@@ -177,9 +183,8 @@ export default function NewInvite() {
           maxLength={2000}
           style={{ marginTop: 16 }}
         />
-        <View style={{ flexDirection: 'row', gap: 14, marginTop: 16 }}>
-          <Field label="Date" value={date} onChangeText={setDate} placeholder="2026-07-20" style={{ flex: 1 }} />
-          <Field label="Time" value={time} onChangeText={setTime} placeholder="06:00" style={{ flex: 1 }} />
+        <View style={{ marginTop: 16 }}>
+          <WhenPicker value={startsAt} onChange={setStartsAt} />
         </View>
         {/* The words are still the words a rider reads — "kickstands up at
             six" isn't a coordinate. The point underneath is what makes it

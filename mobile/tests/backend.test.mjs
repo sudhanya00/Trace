@@ -491,6 +491,30 @@ describe('ride invites', () => {
     assert.equal(row.i_am_in, false);
   });
 
+  it('a ride cannot be planned into the past', async () => {
+    const past = await asha.from('ride_invites').insert({
+      created_by: ashaId,
+      route_id: await adhocRoute(asha, ashaId, 'test: yesterday'),
+      title: 'test: yesterday',
+      starts_at: new Date(Date.now() - 15 * 3600e3).toISOString(),
+    });
+    assert.ok(past.error, 'a ride fifteen hours ago is rejected');
+
+    // But a phone with a slightly wrong clock still gets its ride posted.
+    const skewed = await asha
+      .from('ride_invites')
+      .insert({
+        created_by: ashaId,
+        route_id: await adhocRoute(asha, ashaId, 'test: clock skew'),
+        title: 'test: clock skew',
+        starts_at: new Date(Date.now() - 4 * 60e3).toISOString(),
+      })
+      .select('id')
+      .single();
+    assert.ok(!skewed.error, 'four minutes of skew is not a bug to punish');
+    await asha.from('ride_invites').delete().eq('id', skewed.data.id);
+  });
+
   it('a ride opens on its own page, and a crew ride only for the crew', async () => {
     const { data } = await asha
       .from('ride_invites')
