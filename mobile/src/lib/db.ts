@@ -1533,6 +1533,38 @@ export async function uploadAvatar(userId: string, bytes: ArrayBuffer): Promise<
   return `${url}?v=${Date.now()}`;
 }
 
+/**
+ * Delete the rider's account, and everything hanging off it.
+ *
+ * Order matters and only runs one way. Storage first, because buckets are not
+ * tables and nothing cascades into them — the rider's own delete policy is
+ * scoped to their folder, so this is the last moment anyone can clear it. The
+ * database goes last: `delete_own_account` removes the auth row, every table
+ * cascades from it, and the session it was called with stops existing.
+ *
+ * A failure to clear a photo does not stop the deletion. Leaving a rider
+ * unable to delete their account because a bucket listing timed out would be
+ * the worse outcome, and an orphaned JPEG is not what they asked us to forget.
+ */
+export async function deleteOwnAccount(userId: string): Promise<void> {
+  for (const bucket of ['avatars', 'route-photos'] as const) {
+    try {
+      const { data } = await supabase.storage.from(bucket).list(userId);
+      if (data?.length) {
+        await supabase.storage.from(bucket).remove(data.map((f) => `${userId}/${f.name}`));
+      }
+    } catch {
+      // see above — never block the deletion on a file
+    }
+  }
+
+  const { error } = await supabase.rpc('delete_own_account');
+  if (error) throw error;
+
+  // The account is gone; the local session is now a key to nothing.
+  await supabase.auth.signOut().catch(() => {});
+}
+
 /** §12b: one-tap report — the feedback loop that fixes GPS. */
 export async function submitRecordingReport(
   userId: string,

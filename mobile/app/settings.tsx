@@ -4,11 +4,15 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { showAlert } from '../src/components/Dialog';
+import { HoldToConfirm } from '../src/components/HoldToConfirm';
 import { PushButton } from '../src/components/PushButton';
 import { Card, MonoLabel } from '../src/components/ui';
+import { useAuth } from '../src/lib/auth';
+import { deleteOwnAccount } from '../src/lib/db';
 import { OEM_COPY, oemFamily } from '../src/lib/oem';
 import { supabase } from '../src/lib/supabase';
-import { color, font, layout } from '../src/theme/tokens';
+import { color, font, layout, status } from '../src/theme/tokens';
 
 /** §9 Settings: permissions status, OEM whitelist re-run, sign out. */
 export default function Settings() {
@@ -31,9 +35,24 @@ export default function Settings() {
     }, [])
   );
 
+  const { session } = useAuth();
+  const [deleting, setDeleting] = useState(false);
+
   const signOut = async () => {
     await supabase.auth.signOut();
     router.replace('/');
+  };
+
+  const deleteAccount = async () => {
+    if (!session || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteOwnAccount(session.user.id);
+      router.replace('/');
+    } catch (e) {
+      setDeleting(false);
+      showAlert('Could not delete the account', (e as Error).message);
+    }
   };
 
   return (
@@ -69,6 +88,27 @@ export default function Settings() {
       </Card>
 
       <PushButton label="Sign out" variant="slate" onPress={signOut} style={{ marginTop: 34 }} />
+
+      <MonoLabel size={9} style={{ marginTop: 34, marginBottom: 10 }}>
+        Delete account
+      </MonoLabel>
+      <Card>
+        {/* Say what goes, plainly. A rider deleting their account is owed the
+            list, not a warning triangle. */}
+        <Text style={st.deleteText}>
+          Your rides, tracks, garage, routes, privacy zones, posts and crew messages are
+          deleted. This cannot be undone and there is no copy.
+        </Text>
+        <Text style={[st.deleteText, { marginTop: 10 }]}>
+          Crews you started stay with the riders in them — the longest-standing member
+          becomes admin.
+        </Text>
+        <HoldToConfirm
+          label={deleting ? 'Deleting…' : 'Hold to delete account'}
+          holdingLabel="Keep holding…"
+          onConfirm={deleteAccount}
+        />
+      </Card>
 
       <Pressable onPress={() => router.back()} style={st.back}>
         <Text style={st.backText}>Back</Text>
@@ -111,6 +151,7 @@ const st = StyleSheet.create({
   rowLabel: { fontFamily: font.bodyMedium, fontSize: 13, color: color.white },
   rowValue: { fontFamily: font.mono, fontSize: 10, color: color.steel, flexShrink: 1, textAlign: 'right' },
   batteryText: { fontFamily: font.body, fontSize: 12.5, color: color.steel, lineHeight: 18 },
+  deleteText: { fontFamily: font.body, fontSize: 12.5, color: color.steel, lineHeight: 18 },
   back: { alignSelf: 'center', marginTop: 22, padding: 8 },
   backText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
 });

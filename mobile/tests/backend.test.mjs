@@ -2327,3 +2327,121 @@ describe('cross-user read matrix', () => {
     }
   });
 });
+
+/**
+ * Leaving, and forgetting.
+ *
+ * Deletion is tested on throwaway riders, never on asha or veer — a test that
+ * deletes a fixture the rest of the suite depends on passes once and then
+ * poisons everything after it.
+ */
+describe('leaving and forgetting', () => {
+  /** A real signed-in rider, public so asha can watch their rows appear and go. */
+  async function newRider(tag) {
+    const client = createClient(URL, ANON);
+    const up = await client.auth.signUp({
+      email: `${tag}-${Date.now()}@test.local`,
+      password: 'password123',
+    });
+    assert.ok(up.data?.user?.id, `signUp failed: ${up.error?.message}`);
+    const id = up.data.user.id;
+    const { error } = await client
+      .from('profiles')
+      .insert({ id, handle: `${tag}${Date.now()}`.slice(0, 20), visibility: 'public' });
+    assert.equal(error, null, `profile insert failed: ${error?.message}`);
+    return { client, id };
+  }
+
+  it('deleting an account takes the rider’s data with it', async () => {
+    const t = await newRider('gone');
+    await t.client.from('bikes').insert({ profile_id: t.id, make: 'lifecycle', model: 'x' });
+
+    // asha can see them, so her view is a real observation and not an empty one.
+    const before = await asha.from('bikes').select('id').eq('profile_id', t.id);
+    assert.ok((before.data?.length ?? 0) > 0, 'the rider’s bike exists to begin with');
+
+    const { error } = await t.client.rpc('delete_own_account');
+    assert.equal(error, null, `delete_own_account failed: ${error?.message}`);
+
+    const profile = await asha.from('profiles').select('id').eq('id', t.id);
+    assert.equal(profile.data?.length ?? 0, 0, 'the profile is gone');
+    const bikes = await asha.from('bikes').select('id').eq('profile_id', t.id);
+    assert.equal(bikes.data?.length ?? 0, 0, 'and everything hanging off it cascaded');
+  });
+
+  it('a crew outlives its founder, and keeps an admin', async () => {
+    const founder = await newRider('founder');
+    const { data: crew, error: ce } = await founder.client
+      .from('crews')
+      .insert({ created_by: founder.id, name: `lifecycle: crew ${Date.now()}`, region: 'HP' })
+      .select('id')
+      .single();
+    assert.equal(ce, null, `crew insert failed: ${ce?.message}`);
+
+    // asha joins as an ordinary member; the founder is the only admin.
+    const { error: je } = await asha
+      .from('crew_members')
+      .insert({ crew_id: crew.id, profile_id: ashaId, role: 'member' });
+    assert.equal(je, null, `join failed: ${je?.message}`);
+
+    await founder.client.rpc('delete_own_account');
+
+    const survived = await asha.from('crews').select('id, created_by').eq('id', crew.id);
+    assert.equal(survived.data?.length, 1, 'the crew is still standing');
+    assert.equal(survived.data[0].created_by, null, 'and no longer points at a deleted rider');
+
+    const me = await asha
+      .from('crew_members')
+      .select('role')
+      .eq('crew_id', crew.id)
+      .eq('profile_id', ashaId)
+      .single();
+    assert.equal(me.data.role, 'admin', 'the longest-standing member inherited it');
+
+    await asha.from('crews').delete().eq('id', crew.id);
+  });
+
+  it('deleting an account is not something a signed-out caller can do', async () => {
+    const { error } = await anon.rpc('delete_own_account');
+    assert.ok(error, 'anon must not reach it at all');
+  });
+
+  it('a position past its retention is swept on the next write', async () => {
+    await asha.from('live_positions').upsert({
+      profile_id: ashaId,
+      geom: 'POINT(78.4 31.35)',
+      updated_at: new Date(Date.now() - 2 * 3600e3).toISOString(),
+    });
+    // The statement trigger sweeps anything past an hour — including this.
+    const { data } = await asha.from('live_positions').select('profile_id').eq('profile_id', ashaId);
+    assert.equal(data?.length ?? 0, 0, 'a two-hour-old position does not survive the write');
+  });
+
+  it('a position too stale to be live is not reported as live', async () => {
+    // Half an hour: inside retention, well past the 15 minutes crew_live_riders
+    // has always enforced. The row exists; the answer must not.
+    await asha.from('live_positions').upsert({
+      profile_id: ashaId,
+      geom: 'POINT(78.4 31.35)',
+      updated_at: new Date(Date.now() - 30 * 60e3).toISOString(),
+    });
+    const row = await asha.from('live_positions').select('profile_id').eq('profile_id', ashaId);
+    assert.equal(row.data?.length, 1, 'the row is still retained');
+
+    const { data } = await asha.rpc('live_position_of', { p_profile_id: ashaId });
+    assert.equal(data, null, 'but it is too old to be anyone’s live position');
+
+    await asha.from('live_positions').delete().eq('profile_id', ashaId);
+  });
+
+  it('a fresh position still reports', async () => {
+    await asha.from('live_positions').upsert({
+      profile_id: ashaId,
+      geom: 'POINT(78.4 31.35)',
+      updated_at: new Date().toISOString(),
+    });
+    const { data } = await asha.rpc('live_position_of', { p_profile_id: ashaId });
+    assert.ok(data?.point, 'the tightening did not break live sharing');
+    await asha.from('live_positions').delete().eq('profile_id', ashaId);
+  });
+});
