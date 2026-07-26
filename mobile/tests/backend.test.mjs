@@ -2027,3 +2027,65 @@ describe('a member can still read their own crew', () => {
     await asha.from('crews').delete().eq('id', crew.id);
   });
 });
+
+/**
+ * One answer to who may see a route.
+ *
+ * Route standardization gave a route its own visibility, and moved
+ * public_route_geom() onto route_readable(). route_visible() was left on the
+ * old owner-only rule, so the line on the map was hidden while the
+ * conversation about it stayed open — and comments are where riders write the
+ * things a map cannot show.
+ */
+describe('a route’s own visibility governs its thread', () => {
+  it('a private route’s comments do not reach a stranger', async () => {
+    // Asha's profile is public. The ROUTE is not.
+    const { data: rt, error } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'private',
+        name: 'test: private route',
+        distance_km: 5,
+        geom: 'LINESTRING(78.37 31.376, 78.39 31.368)',
+      })
+      .select('id')
+      .single();
+    assert.equal(error, null, `route insert failed: ${error?.message}`);
+
+    const { error: ce } = await asha.from('route_comments').insert({
+      route_id: rt.id,
+      profile_id: ashaId,
+      body: 'test: the gate by my house is locked after 8pm',
+    });
+    assert.equal(ce, null, `owner could not comment on their own route: ${ce?.message}`);
+
+    // The two helpers must now agree.
+    const readable = await anon.rpc('route_readable', { p_route_id: rt.id });
+    const visible = await anon.rpc('route_visible', { p_route_id: rt.id });
+    assert.equal(readable.data, false, 'route_readable withholds it');
+    assert.equal(visible.data, false, 'and route_visible now agrees');
+
+    const thread = await anon.rpc('route_thread', { p_route_id: rt.id });
+    assert.equal(thread.data?.length ?? 0, 0, 'the conversation is withheld too');
+
+    const geom = await anon.rpc('public_route_geojson', { p_route_id: rt.id });
+    assert.equal(geom.data, null, 'as it always was for the line itself');
+
+    // And the owner still sees their own.
+    const mine = await asha.rpc('route_thread', { p_route_id: rt.id });
+    assert.equal(mine.data.length, 1, 'the owner still reads their own thread');
+
+    await asha.from('routes').delete().eq('id', rt.id);
+  });
+
+  it('a shared route’s comments still reach everyone', async () => {
+    // The tightening must not take the ordinary case with it: ASHA_ROUTE is a
+    // public user route from the seed.
+    const { error } = await anon.rpc('route_thread', { p_route_id: ASHA_ROUTE });
+    assert.equal(error, null, `public route thread broke: ${error?.message}`);
+    const { data: readable } = await anon.rpc('route_visible', { p_route_id: ASHA_ROUTE });
+    assert.equal(readable, true, 'a shared route stays readable');
+  });
+});
