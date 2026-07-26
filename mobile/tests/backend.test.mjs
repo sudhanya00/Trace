@@ -1936,3 +1936,94 @@ describe('a boolean is still an answer', () => {
     await asha.from('routes').delete().eq('id', probe.id);
   });
 });
+
+/**
+ * The signed-out surface, asserted.
+ *
+ * `revoke ... from public` never removed anon on hosted — Supabase grants
+ * EXECUTE to anon directly — so eleven functions written as authenticated-only
+ * answered anonymous callers in production for months. Their internal
+ * auth.uid() predicates held, so nothing leaked, but the second layer was
+ * decorative. And crew_roster shows the other erosion: a DROP FUNCTION for a
+ * new return shape discards the ACL, and the recreate takes the default.
+ *
+ * So the list of what a stranger may call is pinned here. Adding to it should
+ * be a deliberate act with a test change attached.
+ */
+describe('the signed-out surface', () => {
+  // Everything the app calls that requires a rider. Called with the anon key
+  // and no session; each must refuse on privilege, not merely return empty.
+  const mustRefuseAnon = [
+    ['crew_chat', { p_crew_id: '00000000-0000-0000-0000-000000000000', p_before: null }],
+    ['crew_roster', { p_crew_id: '00000000-0000-0000-0000-000000000000' }],
+    ['crew_live_riders', { p_crew_id: '00000000-0000-0000-0000-000000000000' }],
+    ['crew_leaderboard', {}],
+    ['crew_member_contributions', { p_crew_id: '00000000-0000-0000-0000-000000000000' }],
+    ['my_crew_contributions', {}],
+    ['invite_list', { p_crew_id: null }],
+    ['invite_detail', { p_invite_id: '00000000-0000-0000-0000-000000000000' }],
+    ['invite_riders', { p_invite_id: '00000000-0000-0000-0000-000000000000' }],
+    ['my_upcoming_rides', {}],
+    ['follow_edges', {}],
+    ['explore_feed', { p_before: null }],
+    ['suggested_riders', {}],
+    ['owns_ride', { p_ride_id: '00000000-0000-0000-0000-000000000000' }],
+    ['rider_rode_route', {
+      p_profile_id: '00000000-0000-0000-0000-000000000000',
+      p_route_id: '00000000-0000-0000-0000-000000000000',
+    }],
+    ['award_achievements', { p_profile_id: '00000000-0000-0000-0000-000000000000' }],
+  ];
+
+  for (const [fn, args] of mustRefuseAnon) {
+    it(`${fn} refuses a signed-out caller`, async () => {
+      const { error } = await anon.rpc(fn, args);
+      assert.ok(error, `${fn} answered anon — it should not be executable at all`);
+      assert.match(
+        error.message,
+        /permission denied|does not exist/i,
+        `${fn} refused for the wrong reason: ${error.message}`
+      );
+    });
+  }
+
+  // The other half: the signed-out surface must still work, or the catalogue
+  // goes dark for anyone who hasn't signed up yet.
+  it('still lets a stranger read the public catalogue', async () => {
+    const { error: rp } = await anon.from('routes_public').select('id, name').limit(1);
+    assert.equal(rp, null, `routes_public broke for anon: ${rp?.message}`);
+
+    const { error: geo } = await anon.rpc('public_route_geojson', { p_route_id: ASHA_ROUTE });
+    assert.equal(geo, null, `clipped geometry broke for anon: ${geo?.message}`);
+
+    const { error: stats } = await anon.rpc('profile_stats', { p_profile_id: ashaId });
+    assert.equal(stats, null, `profile_stats broke for anon: ${stats?.message}`);
+  });
+});
+
+/**
+ * The grant side of the same coin.
+ *
+ * Revoking anon from a definer function also removes PUBLIC, and PUBLIC was
+ * the only path `authenticated` still had to crew_roster — its real grant was
+ * discarded by a DROP FUNCTION in 20260717000100 and never restored. The suite
+ * had 130 tests and none of them read a roster as a member, so tightening the
+ * ACL would have shipped a dark screen. It reads one now.
+ */
+describe('a member can still read their own crew', () => {
+  it('crew_roster answers an authenticated member', async () => {
+    const { data: crew, error: ce } = await asha
+      .from('crews')
+      .insert({ created_by: ashaId, name: 'test: roster crew', region: 'HP' })
+      .select('id')
+      .single();
+    assert.equal(ce, null, `crew insert failed: ${ce?.message}`);
+
+    const { data, error } = await asha.rpc('crew_roster', { p_crew_id: crew.id });
+    assert.equal(error, null, `crew_roster refused a member: ${error?.message}`);
+    assert.ok(Array.isArray(data) && data.length >= 1, 'the creator is on their own roster');
+    assert.ok(data.some((m) => m.profile_id === ashaId), 'and it is them');
+
+    await asha.from('crews').delete().eq('id', crew.id);
+  });
+});
