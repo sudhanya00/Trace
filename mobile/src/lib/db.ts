@@ -1380,12 +1380,11 @@ export async function routeLine(routeId: string): Promise<[number, number][][]> 
   const stored = await publicRouteSegments(routeId).catch(() => null);
   if (stored?.length) return stored;
 
-  const { data } = await supabase
-    .from('routes')
-    .select('waypoints')
-    .eq('id', routeId)
-    .maybeSingle();
-  const wp = (data?.waypoints ?? []) as { lat: number; lng: number }[];
+  // Through the accessor, never off the table: waypoints are raw positions, so
+  // another rider gets them with the owner's privacy zones taken out. Reading
+  // the column directly would hand back the doorstep the zone exists to hide.
+  const { data } = await supabase.rpc('route_waypoints', { p_route_id: routeId });
+  const wp = (data ?? []) as { lat: number; lng: number }[];
   if (wp.length < 2) return [];
 
   const { planRoute } = await import('./geo-api');

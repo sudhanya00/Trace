@@ -63,6 +63,45 @@ function json(body: unknown, status = 200): Response {
 }
 
 /**
+ * Per-rider throttle.
+ *
+ * Every call past the cache costs money at Google, and a signed-in account is
+ * cheap to get. Without this, one rider with a loop can spend the whole
+ * billing account before anyone notices — the failure mode here is a bill, not
+ * a breach, which is exactly why it's easy to leave unguarded.
+ *
+ * Deliberately generous: a rider dragging a route around genuinely fires a lot
+ * of requests, and the cache absorbs the repeats. These numbers refuse abuse,
+ * not use.
+ *
+ * In-memory, so the real ceiling is this times the instance count. That is a
+ * floor on protection rather than a guarantee — a durable counter belongs in
+ * Postgres alongside the subscription model below.
+ */
+const LIMIT = { search: 60, route: 40 };
+const WINDOW_MS = 60_000;
+const hits = new Map<string, number[]>();
+
+/**
+ * Called on the way to Google, never on a cache hit — the thing being rationed
+ * is spend, and a hit costs nothing. A rider dragging a route around fires a
+ * lot of requests that the cache absorbs; those shouldn't count against them.
+ */
+function throttle(userId: string, action: 'search' | 'route'): void {
+  const now = Date.now();
+  // The map is per-instance and only grows while an instance lives, but an
+  // idle rider shouldn't hold a slot in it forever.
+  if (hits.size > 5000) {
+    for (const [k, v] of hits) if (!v.some((t) => now - t < WINDOW_MS)) hits.delete(k);
+  }
+  const key = `${action}:${userId}`;
+  const recent = (hits.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
+  if (recent.length >= LIMIT[action]) throw new Error('slow down');
+  recent.push(now);
+  hits.set(key, recent);
+}
+
+/**
  * The freemium gate. Today it only proves the caller is a signed-in rider —
  * there is no subscription model yet, and inventing a schema for one here
  * would be guessing. When plans exist, this is the single place that decides,
@@ -188,6 +227,7 @@ Deno.serve(async (req) => {
       const hit = cached(key);
       if (hit) return json({ results: hit, cached: true });
 
+      throttle(userId, 'search');
       const results = await placesSearch(query, params.near);
       cache.set(key, { at: Date.now(), body: results });
       return json({ results });
@@ -204,6 +244,7 @@ Deno.serve(async (req) => {
       const hit = cached(key);
       if (hit) return json({ routes: hit, cached: true });
 
+      throttle(userId, 'route');
       const routes = await googleRoute(points, params.alternatives !== false);
       cache.set(key, { at: Date.now(), body: routes });
       return json({ routes });
@@ -212,7 +253,9 @@ Deno.serve(async (req) => {
     return json({ error: 'unknown action' }, 400);
   } catch (e) {
     const message = (e as Error).message ?? 'geo failed';
-    // Auth failures are the caller's problem; everything else is ours.
-    return json({ error: message }, message === 'unauthenticated' ? 401 : 500);
+    // Auth failures and throttling are the caller's problem; everything else
+    // is ours.
+    const status = message === 'unauthenticated' ? 401 : message === 'slow down' ? 429 : 500;
+    return json({ error: message }, status);
   }
 });

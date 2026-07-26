@@ -1131,11 +1131,14 @@ describe('route standardization', () => {
     const adhocId = await adhocRoute(asha, ashaId, 'test: no geometry');
     const { data: adhoc } = await asha
       .from('routes')
-      .select('geom, source')
+      .select('source')
       .eq('id', adhocId)
       .maybeSingle();
-    assert.equal(adhoc.geom, null, 'a named-but-unmapped ride is still a Route row');
     assert.equal(adhoc.source, 'adhoc');
+    // Geometry is read through the accessor, never off the table (the audit of
+    // 2026-07-26 revoked the column) — and a named-but-unmapped ride has none.
+    const { data: line } = await asha.rpc('public_route_geojson', { p_route_id: adhocId });
+    assert.equal(line, null, 'a named-but-unmapped ride is still a Route row');
   });
 
   it('a private rider’s route stays hidden from strangers but visible to them', async () => {
@@ -1257,12 +1260,14 @@ describe('route standardization', () => {
         start_label: 'Jammu',
         end_label: 'Patnitop',
       })
-      .select('id, geom, waypoints, geom_provider, distance_km, start_label, end_label')
+      .select('id, geom_provider, distance_km, start_label, end_label')
       .single();
     assert.equal(error, null);
-    assert.equal(planned.geom, null, 'no Google geometry is retained');
-    assert.equal(planned.waypoints.length, 3, 'the waypoints define the route');
-    assert.equal(planned.waypoints[1].label, 'the old road', 'via point survives');
+    const { data: line } = await asha.rpc('public_route_geojson', { p_route_id: planned.id });
+    assert.equal(line, null, 'no Google geometry is retained');
+    const { data: wp } = await asha.rpc('route_waypoints', { p_route_id: planned.id });
+    assert.equal(wp.length, 3, 'the waypoints define the route');
+    assert.equal(wp[1].label, 'the old road', 'via point survives');
     assert.equal(planned.geom_provider, 'google');
     assert.equal(planned.start_label, 'Jammu');
     assert.ok(Number(planned.distance_km) > 100, 'distance is a fact about the road, kept');
@@ -1415,8 +1420,8 @@ describe('a planned ride meets its recording', () => {
     // The point of the whole waypoints-only compromise: a Google-planned
     // route can't keep its line, but a recorded track is the rider's own
     // data — so riding it is what makes the geometry storable.
-    const before = await asha.from('routes').select('geom').eq('id', routeId).maybeSingle();
-    assert.equal(before.data.geom, null, 'the planned route starts with no geometry');
+    const before = await asha.rpc('public_route_geojson', { p_route_id: routeId });
+    assert.equal(before.data, null, 'the planned route starts with no geometry');
 
     const rideId = crypto.randomUUID();
     await asha.from('rides').insert({
@@ -1438,10 +1443,11 @@ describe('a planned ride meets its recording', () => {
     // The trigger fires on distance_km, which the track's own trigger sets.
     const after = await asha
       .from('routes')
-      .select('geom, geom_provider')
+      .select('geom_provider')
       .eq('id', routeId)
       .maybeSingle();
-    assert.ok(after.data.geom, 'the ridden track becomes the route’s geometry');
+    const { data: line } = await asha.rpc('public_route_geojson', { p_route_id: routeId });
+    assert.ok(line, 'the ridden track becomes the route’s geometry');
     assert.equal(after.data.geom_provider, 'recorded', 'and is marked as the rider’s own');
   });
 
@@ -1481,8 +1487,8 @@ describe('a planned ride meets its recording', () => {
       { onConflict: 'ride_id' }
     );
 
-    const route = await asha.from('routes').select('geom').eq('id', brokenRoute).maybeSingle();
-    assert.equal(route.data.geom, null, 'a track with a dropout is not turned into a road');
+    const { data: line } = await asha.rpc('public_route_geojson', { p_route_id: brokenRoute });
+    assert.equal(line, null, 'a track with a dropout is not turned into a road');
   });
 
   it('you cannot attach your ride to a crew plan you are not in', async () => {
@@ -1714,6 +1720,106 @@ describe('server-side distance and odometer', () => {
       await asha.from('rides').delete().eq('id', rideId);
     } else {
       assert.ok(error);
+    }
+  });
+});
+
+/**
+ * Column privilege — the security audit of 2026-07-26.
+ *
+ * RLS gates rows, never columns. Every one of these covers a case where a
+ * policy widened to share a row and quietly took a column with it that was
+ * only ever meant to be served through something that cleans it first.
+ */
+describe('column privilege', () => {
+  it('a stranger cannot read raw route geometry off the table', async () => {
+    const { data, error } = await veer.from('routes').select('geom').eq('id', ASHA_ROUTE);
+    assert.ok(error, 'selecting geom is refused outright');
+    assert.equal(data, null);
+  });
+
+  it('a stranger cannot read raw waypoints off the table', async () => {
+    const { error } = await veer.from('routes').select('waypoints').eq('id', ASHA_ROUTE);
+    assert.ok(error, 'selecting waypoints is refused outright');
+  });
+
+  it('the metadata a route list needs still reads fine', async () => {
+    const { data, error } = await veer
+      .from('routes')
+      .select('id, name, distance_km, region, difficulty')
+      .eq('id', ASHA_ROUTE)
+      .maybeSingle();
+    assert.equal(error, null, `catalogue read broke: ${error?.message}`);
+    assert.equal(data.id, ASHA_ROUTE);
+  });
+
+  it('waypoints reach a stranger only with the owner’s zones taken out', async () => {
+    // Two points: one out on the road, one standing on a spot asha then hides.
+    const HIDDEN = { lat: 31.368, lng: 78.39, place_id: null, label: 'test: home' };
+    const OPEN = { lat: 31.1, lng: 77.17, place_id: null, label: 'test: road' };
+    const routeId = await adhocRoute(asha, ashaId, 'test: waypoint route', {
+      source: 'user',
+      waypoints: [HIDDEN, OPEN],
+    });
+
+    const owner = await asha.rpc('route_waypoints', { p_route_id: routeId });
+    assert.equal(owner.data.length, 2, 'the owner keeps every point of their own route');
+
+    await asha.from('privacy_zones').insert({
+      profile_id: ashaId,
+      label: 'test: waypoint zone',
+      area: 'POLYGON((78.38 31.378, 78.40 31.378, 78.40 31.358, 78.38 31.358, 78.38 31.378))',
+    });
+
+    const stranger = await veer.rpc('route_waypoints', { p_route_id: routeId });
+    assert.equal(stranger.data.length, 1, 'the hidden point is gone');
+    assert.equal(stranger.data[0].label, 'test: road', 'the road survives');
+
+    const still = await asha.rpc('route_waypoints', { p_route_id: routeId });
+    assert.equal(still.data.length, 2, 'the owner’s own view is never clipped');
+
+    await asha.from('privacy_zones').delete().eq('label', 'test: waypoint zone');
+    await asha.from('routes').delete().eq('id', routeId);
+  });
+
+  it('a rider cannot make themselves an admin', async () => {
+    const { error } = await veer.from('profiles').update({ is_admin: true }).eq('id', veerId);
+    assert.ok(error, 'writing is_admin is refused outright');
+
+    // Read back through veer's own row — service_role holds no select on the
+    // app tables (they were granted explicitly to anon/authenticated only).
+    const { data } = await veer.from('profiles').select('is_admin').eq('id', veerId).single();
+    assert.equal(data.is_admin, false, 'and the flag did not move');
+  });
+
+  it('a rider cannot smuggle is_admin in on insert either', async () => {
+    const fresh = createClient(URL, ANON);
+    const email = `audit-${Date.now()}@test.local`;
+    const { data: signed } = await fresh.auth.signUp({ email, password: 'password123' });
+    if (!signed?.user) return; // confirmations on — nothing to test here
+    const { error } = await fresh
+      .from('profiles')
+      .insert({ id: signed.user.id, handle: `audit${Date.now()}`, is_admin: true });
+    assert.ok(error, 'is_admin is not a column a rider may write');
+    await admin.auth.admin.deleteUser(signed.user.id).catch(() => {});
+  });
+
+  it('the profile fields a rider does own still write', async () => {
+    const { error } = await asha
+      .from('profiles')
+      .update({ display_name: 'Asha', home_region: 'Himachal' })
+      .eq('id', ashaId);
+    assert.equal(error, null, `own-profile write broke: ${error?.message}`);
+  });
+
+  it('upload buckets carry a ceiling and a type shortlist', async () => {
+    const { data, error } = await admin.storage.listBuckets();
+    assert.equal(error, null, `listing buckets failed: ${error?.message}`);
+    const ours = data.filter((b) => ['avatars', 'route-photos'].includes(b.id));
+    assert.equal(ours.length, 2, 'both buckets exist');
+    for (const b of ours) {
+      assert.ok(b.file_size_limit > 0, `${b.id} has a size ceiling`);
+      assert.ok(b.allowed_mime_types?.length, `${b.id} has a type shortlist`);
     }
   });
 });
