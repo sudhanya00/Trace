@@ -2184,3 +2184,146 @@ describe('cross-user write protection', () => {
     });
   }
 });
+
+/**
+ * The cross-user READ matrix.
+ *
+ * The write matrix could lean on one invariant — a stranger never modifies
+ * another rider's row — so it needed no per-table thinking. Reads have no such
+ * invariant: a public rider's bikes and rides are meant to be readable, and
+ * ride_tracks and privacy_zones are meant never to be. The answer differs per
+ * table, so the answer is written down per table.
+ *
+ * asha is public. veer is signed in, private, does not follow her, and is in
+ * none of her crews — the ordinary stranger.
+ *
+ * Every case first asserts that ASHA can see her own row. Without that a
+ * "veer sees nothing" assertion passes just as happily when the fixture never
+ * got created, which is the way a privacy test quietly stops testing anything.
+ */
+describe('cross-user read matrix', () => {
+  const fx = {};
+
+  before(async () => {
+    // A third rider, so "asha's follow edges" are edges that have nothing to do
+    // with veer — otherwise he is legitimately party to them and sees them.
+    const third = createClient(URL, ANON);
+    const up = await third.auth.signUp({
+      email: `matrix-third-${Date.now()}@test.local`,
+      password: 'password123',
+    });
+    fx.thirdId = up.data?.user?.id ?? null;
+    if (fx.thirdId) {
+      // follows references profiles, not auth.users — a fresh account has no
+      // profile row yet, so the edge would fail its foreign key.
+      await third.from('profiles').insert({ id: fx.thirdId, handle: `mx${Date.now()}` });
+      await asha.from('follows').insert({ follower_id: ashaId, followee_id: fx.thirdId });
+    }
+
+    // veer following asha fires notify_on_follow, giving asha a notification
+    // she owns and he must not be able to read.
+    await veer.from('follows').insert({ follower_id: veerId, followee_id: ashaId });
+
+    fx.crew = (await asha.from('crews')
+      .insert({ created_by: ashaId, name: 'read: asha crew', region: 'HP' })
+      .select('id').single()).data?.id;
+    await asha.from('crew_messages')
+      .insert({ crew_id: fx.crew, profile_id: ashaId, body: 'read: crew only' });
+
+    fx.invite = (await asha.from('ride_invites').insert({
+      created_by: ashaId, route_id: ASHA_ROUTE, title: 'read: public ride',
+      starts_at: new Date(Date.now() + 864e5).toISOString(),
+    }).select('id').single()).data?.id;
+    await asha.from('invite_rsvps').insert({ invite_id: fx.invite, profile_id: ashaId });
+
+    fx.post = (await asha.from('posts')
+      .insert({ profile_id: ashaId, body: 'read: asha post' })
+      .select('id').single()).data?.id;
+    await asha.from('post_comments')
+      .insert({ post_id: fx.post, profile_id: ashaId, body: 'read: comment' });
+    await asha.from('post_likes').insert({ post_id: fx.post, profile_id: ashaId });
+
+    await asha.from('route_comments')
+      .insert({ route_id: ASHA_ROUTE, profile_id: ashaId, body: 'read: route comment' });
+    await asha.from('condition_reports')
+      .insert({ route_id: ASHA_ROUTE, profile_id: ashaId, status: 'clear', note: 'read: clear' });
+    await asha.from('recording_reports').insert({ profile_id: ashaId });
+    await asha.from('content_reports').insert({ reporter_id: ashaId });
+    await asha.from('push_tokens').insert({ profile_id: ashaId, token: 'read: tok' });
+    await asha.from('live_positions')
+      .upsert({ profile_id: ashaId, geom: 'POINT(78.4 31.35)' });
+  });
+
+  after(async () => {
+    await asha.from('follows').delete().eq('follower_id', ashaId);
+    await veer.from('follows').delete().eq('follower_id', veerId);
+    await asha.from('crews').delete().like('name', 'read:%');
+    await asha.from('ride_invites').delete().like('title', 'read:%');
+    await asha.from('posts').delete().like('body', 'read:%');
+    await asha.from('route_comments').delete().like('body', 'read:%');
+    await asha.from('condition_reports').delete().like('note', 'read:%');
+    await asha.from('push_tokens').delete().like('token', 'read:%');
+    await asha.from('recording_reports').delete().eq('profile_id', ashaId);
+    await asha.from('content_reports').delete().eq('reporter_id', ashaId);
+    await asha.from('live_positions').delete().eq('profile_id', ashaId);
+  });
+
+  // see: may an ordinary stranger read asha's rows in this table?
+  const MATRIX = [
+    { t: 'profiles', owner: 'id', see: true, why: 'asha is a public rider' },
+    { t: 'bikes', owner: 'profile_id', see: true, why: 'a public rider’s garage is their profile' },
+    { t: 'rides', owner: 'profile_id', see: true, why: 'ride metadata carries no geometry' },
+    { t: 'ride_tracks', owner: 'profile_id', see: false, why: 'raw traces are owner-only; public reads go through the clipped accessors' },
+    // Explicit columns: select('*') would reach geom and waypoints, which are
+    // revoked from everyone including the owner, so even asha's read fails.
+    { t: 'routes', owner: 'profile_id', see: true, cols: 'id, name, distance_km, source, visibility', why: 'the catalogue is public; the geometry columns are not (asserted separately)' },
+    { t: 'privacy_zones', owner: 'profile_id', see: false, why: 'a zone reveals the place it exists to hide' },
+    { t: 'recording_reports', owner: 'profile_id', see: false, why: 'a bug report carries a raw point log' },
+    { t: 'follows', owner: 'follower_id', see: false, why: 'you see only edges you are party to' },
+    { t: 'route_comments', owner: 'profile_id', see: true, why: 'discussion on a readable route' },
+    { t: 'condition_reports', owner: 'profile_id', see: true, why: 'road conditions are the point of sharing a route' },
+    { t: 'content_reports', owner: 'reporter_id', see: false, why: 'who reported whom is not public' },
+    { t: 'push_tokens', owner: 'profile_id', see: false, why: 'a device token is a way to reach someone' },
+    { t: 'notifications', owner: 'profile_id', see: false, why: 'someone else’s inbox' },
+    { t: 'crews', owner: 'created_by', see: true, why: 'crews are discoverable by any signed-in rider, by design' },
+    { t: 'crew_members', owner: 'profile_id', see: true, why: 'open rosters, by design' },
+    { t: 'crew_messages', owner: 'profile_id', see: false, why: 'the chat is for members' },
+    { t: 'ride_invites', owner: 'created_by', see: true, why: 'a board ride with no crew is public' },
+    { t: 'invite_rsvps', owner: 'profile_id', see: true, why: 'who is coming to a ride you can see' },
+    { t: 'live_positions', owner: 'profile_id', see: false, why: 'live location goes to accepted followers and named crews only' },
+    { t: 'achievements', owner: 'profile_id', see: true, why: 'a public rider’s milestones' },
+    { t: 'posts', owner: 'profile_id', see: true, why: 'a public rider’s posts' },
+    { t: 'post_comments', owner: 'profile_id', see: true, why: 'discussion on a visible post' },
+    { t: 'post_likes', owner: 'profile_id', see: true, why: 'likes on a visible post' },
+  ];
+
+  for (const { t, owner, see, why, cols } of MATRIX) {
+    it(`${t}: a stranger ${see ? 'may' : 'may NOT'} read another rider’s rows — ${why}`, async () => {
+      const sel = cols ?? '*';
+      const mine = await asha.from(t).select(sel).eq(owner, ashaId);
+      assert.equal(mine.error, null, `fixture unreadable by its owner: ${mine.error?.message}`);
+      assert.ok(
+        (mine.data?.length ?? 0) > 0,
+        `no fixture row in ${t} — this case would pass without testing anything`
+      );
+
+      const theirs = await veer.from(t).select(sel).eq(owner, ashaId);
+      if (see) {
+        assert.equal(theirs.error, null, `${t} refused a stranger: ${theirs.error?.message}`);
+        assert.ok((theirs.data?.length ?? 0) > 0, `${t} hid rows a stranger should see`);
+      } else {
+        assert.ok(
+          theirs.error || (theirs.data?.length ?? 0) === 0,
+          `${t} leaked ${theirs.data?.length} row(s) to a stranger`
+        );
+      }
+    });
+  }
+
+  it('routes: the rows are public but the geometry columns are not', async () => {
+    for (const col of ['geom', 'waypoints']) {
+      const { error } = await veer.from('routes').select(col).eq('profile_id', ashaId);
+      assert.ok(error, `routes.${col} was readable — clipping is bypassable again`);
+    }
+  });
+});
