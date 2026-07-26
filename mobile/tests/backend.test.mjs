@@ -2542,3 +2542,131 @@ describe('the delete flow, end to end on the server', () => {
     await t.client.rpc('delete_own_account');
   });
 });
+
+/**
+ * The rider fingerprint.
+ *
+ * This is the struct that ends up inside a model prompt, so the tests are as
+ * much about what it does NOT contain as what it does: no coordinates, no
+ * handles, no ids, and nothing describing anybody but the caller.
+ */
+describe('rider fingerprint', () => {
+  it('describes the caller, from what they actually rode', async () => {
+    const { data, error } = await asha.rpc('rider_profile');
+    assert.equal(error, null, `rider_profile failed: ${error?.message}`);
+    assert.equal(data.length, 1, 'one fingerprint, for the caller');
+
+    const me = data[0];
+    assert.ok(me.ride_count >= 1, 'asha has ridden');
+    assert.ok(Number(me.total_km) > 0, 'and covered distance');
+    assert.ok(
+      Number(me.longest_ride_km) <= Number(me.total_km),
+      'the longest day cannot exceed the total'
+    );
+    assert.ok(Array.isArray(me.active_months), 'months she rides in');
+    assert.ok(Array.isArray(me.bike_types), 'what she rides');
+    assert.equal(typeof me.home_region, 'string');
+  });
+
+  it('carries no coordinates, no identifiers, and nobody else', async () => {
+    const { data } = await asha.rpc('rider_profile');
+    const me = data[0];
+    const shape = Object.keys(me).sort();
+
+    // Whitelist, not blacklist: a new column has to be added here deliberately,
+    // which is the moment to ask whether it belongs in a prompt at all.
+    assert.deepEqual(shape, [
+      'active_months',
+      'bike_types',
+      'hardest_difficulty',
+      'highest_altitude_m',
+      'home_region',
+      'longest_ride_km',
+      'max_odometer_km',
+      'ride_count',
+      'routes_ridden',
+      'terrain_ridden',
+      'total_km',
+    ]);
+
+    const blob = JSON.stringify(me);
+    for (const leak of ['lat', 'lng', 'geom', 'coordinates', 'handle', 'email', ashaId]) {
+      assert.ok(!blob.includes(leak), `fingerprint leaked ${leak}`);
+    }
+  });
+
+  it('is not a way to ask about another rider', async () => {
+    // No argument means no subject but yourself — asha and veer get their own
+    // numbers from the identical call, and neither can request the other's.
+    const mine = (await asha.rpc('rider_profile')).data[0];
+    const theirs = (await veer.rpc('rider_profile')).data[0];
+    assert.notEqual(
+      Number(mine.total_km),
+      Number(theirs.total_km),
+      'two riders, two fingerprints'
+    );
+
+    // And there is no overload that takes one.
+    const { error } = await asha.rpc('rider_profile', { p_profile_id: veerId });
+    assert.ok(error, 'no argument-taking variant exists to be pointed at anyone');
+  });
+
+  it('tells a signed-out caller nothing at all', async () => {
+    const { data, error } = await anon.rpc('rider_profile');
+    assert.ok(error || (data?.length ?? 0) === 0, 'anon gets no fingerprint');
+  });
+
+  it('a rider with no history gets an empty fingerprint, not an error', async () => {
+    // The new-city case is also the empty-history case — the ranker must be
+    // able to ask about someone who has ridden nothing yet.
+    const fresh = createClient(URL, ANON);
+    const up = await fresh.auth.signUp({
+      email: `fingerprint-${Date.now()}@test.local`,
+      password: 'password123',
+    });
+    assert.ok(up.data?.user?.id, `signUp failed: ${up.error?.message}`);
+    await fresh
+      .from('profiles')
+      .insert({ id: up.data.user.id, handle: `fp${Date.now()}`.slice(0, 20) });
+
+    const { data, error } = await fresh.rpc('rider_profile');
+    assert.equal(error, null, `a new rider is not an error: ${error?.message}`);
+    assert.equal(data.length, 1, 'they still get a row');
+    assert.equal(data[0].ride_count, 0, 'just an empty one');
+    assert.equal(Number(data[0].total_km), 0);
+    assert.deepEqual(data[0].terrain_ridden, []);
+    assert.equal(data[0].highest_altitude_m, null, 'nothing ridden, nothing known');
+
+    await fresh.rpc('delete_own_account');
+  });
+
+  it('counts a route as ridden when the rider shared it from a ride', async () => {
+    const before = (await asha.rpc('rider_profile')).data[0].routes_ridden;
+
+    const { data: route, error } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'public',
+        source_ride_id: ASHA_RIDE,
+        name: 'fp: shared from a ride',
+        distance_km: 12,
+        difficulty: 'expert',
+        max_altitude_m: 4100,
+        terrain_tags: ['unpaved'],
+        geom: 'LINESTRING(78.37 31.376, 78.39 31.368)',
+      })
+      .select('id')
+      .single();
+    assert.equal(error, null, `route insert failed: ${error?.message}`);
+
+    const after = (await asha.rpc('rider_profile')).data[0];
+    assert.equal(after.routes_ridden, before + 1, 'the shared route counts');
+    assert.equal(after.hardest_difficulty, 'expert', 'and raises the hardest finished');
+    assert.equal(after.highest_altitude_m, 4100, 'and the highest ridden');
+    assert.ok(after.terrain_ridden.includes('unpaved'), 'and the surfaces');
+
+    await asha.from('routes').delete().eq('id', route.id);
+  });
+});
