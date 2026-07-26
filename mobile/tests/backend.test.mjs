@@ -1813,7 +1813,17 @@ describe('column privilege', () => {
   });
 
   it('upload buckets carry a ceiling and a type shortlist', async () => {
-    const { data, error } = await admin.storage.listBuckets();
+    // What's being asserted is a row in storage.buckets, but the only way to
+    // it from here is the storage service — which comes up a moment after the
+    // database does. Retry the CONNECTION, never the assertion: a 502 while
+    // the container settles is not a finding, and a flaky test is worse than
+    // no test because it teaches you to re-run reds.
+    let data, error;
+    for (let i = 0; i < 10; i++) {
+      ({ data, error } = await admin.storage.listBuckets());
+      if (!error) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
     assert.equal(error, null, `listing buckets failed: ${error?.message}`);
     const ours = data.filter((b) => ['avatars', 'route-photos'].includes(b.id));
     assert.equal(ours.length, 2, 'both buckets exist');
@@ -1867,28 +1877,38 @@ describe('a boolean is still an answer', () => {
     await asha.from('routes').delete().eq('id', probe.id);
   });
 
-  it('will not answer an unauthenticated caller at all', async () => {
-    const { data: probe } = await asha
-      .from('routes')
-      .insert({
-        profile_id: ashaId,
-        source: 'user',
-        visibility: 'private',
-        name: 'test: anon probe',
-        distance_km: 1,
-        geom: overVeersTrack,
-      })
-      .select('id')
-      .single();
+  it('tells an unauthenticated caller the same thing either way', async () => {
+    // The property that matters is not "never true" — it's that the answer
+    // carries no information. The first fix returned null where the rider had
+    // ridden and false where they hadn't, which is the same oracle in a
+    // different alphabet, and a "never true" assertion sailed straight past it.
+    const mk = async (name, geom) => {
+      const { data } = await asha
+        .from('routes')
+        .insert({ profile_id: ashaId, source: 'user', visibility: 'private', name, distance_km: 1, geom })
+        .select('id')
+        .single();
+      return data.id;
+    };
+    const hit = await mk('test: anon probe hit', overVeersTrack);
+    const miss = await mk('test: anon probe miss', 'LINESTRING(72.5000 23.0000, 72.5100 23.0100, 72.5200 23.0200)');
 
-    const { data, error } = await anon.rpc('rider_rode_route', {
-      p_profile_id: VEER_PROFILE,
-      p_route_id: probe.id,
-    });
-    // Either the grant is gone or the predicate refuses — never true.
-    assert.ok(error || data !== true, 'anon gets no usable answer');
+    const ask = (id) => anon.rpc('rider_rode_route', { p_profile_id: VEER_PROFILE, p_route_id: id });
+    const onTrack = await ask(hit);
+    const faraway = await ask(miss);
 
-    await asha.from('routes').delete().eq('id', probe.id);
+    if (onTrack.error && faraway.error) {
+      // Grant is gone — nothing to distinguish.
+    } else {
+      assert.equal(
+        onTrack.data,
+        faraway.data,
+        'a probe over the rider and a probe 1500km away must be indistinguishable'
+      );
+      assert.notEqual(onTrack.data, true, 'and certainly never true');
+    }
+
+    await asha.from('routes').delete().in('id', [hit, miss]);
   });
 
   it('still tells a rider about their own riding', async () => {
