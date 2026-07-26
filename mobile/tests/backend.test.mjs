@@ -2089,3 +2089,98 @@ describe('a route’s own visibility governs its thread', () => {
     assert.equal(readable, true, 'a shared route stays readable');
   });
 });
+
+/**
+ * The cross-user matrix.
+ *
+ * The definer sweep covered half the authorization model. This is the other
+ * half, and it is deliberately not a reading of the policies — reading is what
+ * missed `routes` keeping a table-wide select grant when routes_read widened,
+ * and what missed route_visible going stale after the visibility model changed.
+ * This attacks instead: veer, a second real account, tries to touch asha's rows
+ * in every table that has RLS.
+ *
+ * One invariant covers every table regardless of its read rules: whatever a
+ * stranger may SEE, they may never modify. So each table is attacked three
+ * ways — update, delete, and insert-as-someone-else — and all 23 are listed,
+ * so a new table arriving with no policies fails here rather than in
+ * production.
+ */
+describe('cross-user write protection', () => {
+  const fx = {};
+
+  before(async () => {
+    fx.route = ASHA_ROUTE;
+    fx.post = (
+      await asha.from('posts').insert({ profile_id: ashaId, body: 'matrix: asha post' }).select('id').single()
+    ).data?.id;
+    fx.crew = (
+      await asha.from('crews').insert({ created_by: ashaId, name: 'matrix: asha crew', region: 'HP' }).select('id').single()
+    ).data?.id;
+    fx.invite = (
+      await asha.from('ride_invites').insert({
+        created_by: ashaId,
+        route_id: fx.route,
+        title: 'matrix: asha ride',
+        starts_at: new Date(Date.now() + 864e5).toISOString(),
+      }).select('id').single()
+    ).data?.id;
+  });
+
+  after(async () => {
+    await asha.from('ride_invites').delete().like('title', 'matrix:%');
+    await asha.from('posts').delete().like('body', 'matrix:%');
+    await asha.from('crews').delete().like('name', 'matrix:%');
+    await asha.from('bikes').delete().like('make', 'matrix:%');
+    await asha.from('privacy_zones').delete().like('label', 'matrix:%');
+  });
+
+  // owner: the column naming the row's owner.
+  // mk:    a row owned by the given id, for the insert-as-someone-else attack.
+  // patch: a harmless column to attempt to overwrite.
+  const TABLES = [
+    { t: 'profiles', owner: 'id', patch: { display_name: 'matrix: hacked' }, mk: (id) => ({ id, handle: 'matrixhandle' }) },
+    { t: 'bikes', owner: 'profile_id', patch: { make: 'matrix: hacked' }, mk: (id) => ({ profile_id: id, make: 'matrix: x', model: 'y' }) },
+    { t: 'rides', owner: 'profile_id', patch: { title: 'matrix: hacked' }, mk: (id) => ({ profile_id: id, started_at: new Date().toISOString(), ended_at: new Date().toISOString() }) },
+    { t: 'ride_tracks', owner: 'profile_id', patch: { geom: 'MULTILINESTRING((1 1, 2 2))' }, mk: (id) => ({ ride_id: crypto.randomUUID(), profile_id: id, geom: 'MULTILINESTRING((1 1, 2 2))' }) },
+    { t: 'routes', owner: 'profile_id', patch: { name: 'matrix: hacked' }, mk: (id) => ({ profile_id: id, source: 'user', name: 'matrix: x', geom: 'LINESTRING(1 1, 2 2)' }) },
+    { t: 'privacy_zones', owner: 'profile_id', patch: { label: 'matrix: hacked' }, mk: (id) => ({ profile_id: id, label: 'matrix: z', area: 'POLYGON((1 1, 2 1, 2 2, 1 2, 1 1))' }) },
+    { t: 'recording_reports', owner: 'profile_id', patch: {}, mk: (id) => ({ profile_id: id }) },
+    { t: 'follows', owner: 'follower_id', patch: { state: 'accepted' }, mk: (id) => ({ follower_id: id, followee_id: veerId }) },
+    { t: 'route_comments', owner: 'profile_id', patch: { body: 'matrix: hacked' }, mk: (id) => ({ route_id: fx.route, profile_id: id, body: 'matrix: c' }) },
+    { t: 'condition_reports', owner: 'profile_id', patch: { note: 'matrix: hacked' }, mk: (id) => ({ route_id: fx.route, profile_id: id, status: 'clear' }) },
+    { t: 'content_reports', owner: 'reporter_id', patch: {}, mk: (id) => ({ reporter_id: id }) },
+    { t: 'push_tokens', owner: 'profile_id', patch: { token: 'matrix: hacked' }, mk: (id) => ({ profile_id: id, token: 'matrix: tok' }) },
+    { t: 'notifications', owner: 'profile_id', patch: { title: 'matrix: hacked' }, mk: (id) => ({ profile_id: id, title: 'matrix: n' }) },
+    { t: 'crews', owner: 'created_by', patch: { name: 'matrix: hacked' }, mk: (id) => ({ created_by: id, name: 'matrix: crew2' }) },
+    { t: 'crew_members', owner: 'profile_id', patch: { role: 'admin' }, mk: (id) => ({ crew_id: fx.crew, profile_id: id, role: 'member' }) },
+    { t: 'crew_messages', owner: 'profile_id', patch: { body: 'matrix: hacked' }, mk: (id) => ({ crew_id: fx.crew, profile_id: id, body: 'matrix: m' }) },
+    { t: 'ride_invites', owner: 'created_by', patch: { title: 'matrix: hacked' }, mk: (id) => ({ created_by: id, route_id: fx.route, title: 'matrix: i', starts_at: new Date(Date.now() + 864e5).toISOString() }) },
+    { t: 'invite_rsvps', owner: 'profile_id', patch: {}, mk: (id) => ({ invite_id: fx.invite, profile_id: id }) },
+    { t: 'live_positions', owner: 'profile_id', patch: { geom: 'POINT(1 1)' }, mk: (id) => ({ profile_id: id, geom: 'POINT(1 1)' }) },
+    { t: 'achievements', owner: 'profile_id', patch: {}, mk: (id) => ({ profile_id: id, key: 'matrix: k' }) },
+    { t: 'posts', owner: 'profile_id', patch: { body: 'matrix: hacked' }, mk: (id) => ({ profile_id: id, body: 'matrix: p' }) },
+    { t: 'post_comments', owner: 'profile_id', patch: { body: 'matrix: hacked' }, mk: (id) => ({ post_id: fx.post, profile_id: id, body: 'matrix: pc' }) },
+    { t: 'post_likes', owner: 'profile_id', patch: {}, mk: (id) => ({ post_id: fx.post, profile_id: id }) },
+  ];
+
+  for (const { t, owner, patch, mk } of TABLES) {
+    it(t + ': a stranger cannot create a row owned by someone else', async () => {
+      const { data, error } = await veer.from(t).insert(mk(ashaId)).select();
+      // Refused on policy, refused on privilege, or it wrote nothing. Never a row.
+      assert.ok(error || (data?.length ?? 0) === 0, 'veer inserted into ' + t + ' as asha');
+    });
+
+    if (Object.keys(patch).length > 0) {
+      it(t + ': a stranger cannot overwrite another rider row', async () => {
+        const { data, error } = await veer.from(t).update(patch).eq(owner, ashaId).select();
+        assert.ok(error || (data?.length ?? 0) === 0, 'veer updated ' + data?.length + ' row(s) in ' + t);
+      });
+    }
+
+    it(t + ': a stranger cannot delete another rider row', async () => {
+      const { data, error } = await veer.from(t).delete().eq(owner, ashaId).select();
+      assert.ok(error || (data?.length ?? 0) === 0, 'veer deleted ' + data?.length + ' row(s) from ' + t);
+    });
+  }
+});
