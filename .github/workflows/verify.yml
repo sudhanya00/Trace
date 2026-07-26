@@ -1,0 +1,77 @@
+# The ratchet.
+#
+# The security audit of 2026-07-26 found two holes that had been open since
+# 24 July, and both were the same shape: a migration widened a read policy and
+# the table grant underneath it was never narrowed to match. Nothing caught it,
+# because the only thing standing between that and production was somebody
+# remembering to run `npm test`.
+#
+# So this runs the suite the way the working rule says it must be run — against
+# a database built from nothing but the migrations — on every push. A grant
+# that re-widens now fails here instead of on a rider's phone.
+name: verify
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A superseded run tells you nothing useful; let the newest push win.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      # `db reset` below replays every migration against an empty database and
+      # then seeds it. That is the whole point: the suite must never pass on a
+      # database that only got here by accident of what ran locally.
+      - name: Start Supabase
+        working-directory: .
+        run: supabase start
+
+      - name: Rebuild the database from migrations alone
+        working-directory: .
+        run: supabase db reset
+
+      - name: Test
+        run: npm test
+
+      # Non-blocking: visibility, not a gate. Dependency advisories move on
+      # their own schedule and shouldn't be able to redden a build that has
+      # nothing wrong with it.
+      - name: Dependency advisories
+        if: always()
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+      - name: Supabase logs on failure
+        if: failure()
+        working-directory: .
+        run: supabase status || true
