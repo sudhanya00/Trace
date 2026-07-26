@@ -1823,3 +1823,96 @@ describe('column privilege', () => {
     }
   });
 });
+
+/**
+ * The definer sweep, 2026-07-26.
+ *
+ * rider_rode_route() reads ride_tracks as the owner, so RLS is not in the room.
+ * It answered about anyone, to anyone, including unauthenticated callers — and
+ * because the caller supplies the geometry, a boolean per call is enough to
+ * walk inward on somebody's position.
+ */
+describe('a boolean is still an answer', () => {
+  const VEER_PROFILE = '00000000-0000-4000-a000-000000000002';
+
+  // Drawn over veer's seed track (Srinagar). If the oracle is open, this is
+  // the probe that finds him.
+  const overVeersTrack = 'LINESTRING(74.8300 34.0800, 74.8450 34.0900, 74.8600 34.1000)';
+
+  it('will not say where another rider has been', async () => {
+    const { data: probe, error } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'private',
+        name: 'test: probe over veer',
+        distance_km: 1,
+        geom: overVeersTrack,
+      })
+      .select('id')
+      .single();
+    assert.equal(error, null, `probe insert failed: ${error?.message}`);
+
+    // asha cannot see veer at all — he is private and unfollowed.
+    const { data: visible } = await asha.from('profiles').select('id').eq('id', VEER_PROFILE);
+    assert.equal(visible.length, 0, 'veer is genuinely invisible to asha');
+
+    const { data: answer } = await asha.rpc('rider_rode_route', {
+      p_profile_id: VEER_PROFILE,
+      p_route_id: probe.id,
+    });
+    assert.notEqual(answer, true, 'asking about someone else never returns true');
+
+    await asha.from('routes').delete().eq('id', probe.id);
+  });
+
+  it('will not answer an unauthenticated caller at all', async () => {
+    const { data: probe } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'private',
+        name: 'test: anon probe',
+        distance_km: 1,
+        geom: overVeersTrack,
+      })
+      .select('id')
+      .single();
+
+    const { data, error } = await anon.rpc('rider_rode_route', {
+      p_profile_id: VEER_PROFILE,
+      p_route_id: probe.id,
+    });
+    // Either the grant is gone or the predicate refuses — never true.
+    assert.ok(error || data !== true, 'anon gets no usable answer');
+
+    await asha.from('routes').delete().eq('id', probe.id);
+  });
+
+  it('still tells a rider about their own riding', async () => {
+    // Asha's own track, so the honest use — the one set_rode_it() makes —
+    // must keep working.
+    const { data: probe } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'public',
+        name: 'test: over my own track',
+        distance_km: 1,
+        geom: 'LINESTRING(78.3700 31.3760, 78.3900 31.3680, 78.4100 31.3590)',
+      })
+      .select('id')
+      .single();
+
+    const { data: mine } = await asha.rpc('rider_rode_route', {
+      p_profile_id: ashaId,
+      p_route_id: probe.id,
+    });
+    assert.equal(mine, true, 'a rider is still told they rode their own road');
+
+    await asha.from('routes').delete().eq('id', probe.id);
+  });
+});
