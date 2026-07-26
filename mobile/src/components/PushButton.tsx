@@ -1,69 +1,100 @@
 import { useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
 
-import { color, font, motion } from '../theme/tokens';
+import { tapPrimary, tick } from '../lib/haptics';
+import { accent, font, motion, radius, status, surface, text } from '../theme/tokens';
+
+type Variant = 'primary' | 'secondary' | 'destructive' | 'signal' | 'slate';
 
 /**
- * Button with physical travel (§8 motion #3): the face depresses 5px onto its
- * plinth in 70ms linear. Mechanical, not springy.
+ * The button. Overhaul §2.2: no outer glow (a glow on black is a tell), a
+ * press that scales to 0.98 and darkens over motion.quick, and a disabled
+ * state that reads as disabled — surface fill, muted label — never a dimmed
+ * yellow that looks like a broken enabled button.
+ *
+ * 'signal'/'slate' are kept as aliases for 'primary'/'secondary' so the dozen
+ * existing call sites didn't all have to change at once.
  */
 export function PushButton({
   label,
   onPress,
-  variant = 'signal',
+  variant = 'primary',
   height = 56,
   disabled = false,
   style,
 }: {
   label: string;
   onPress: () => void;
-  variant?: 'signal' | 'slate';
+  variant?: Variant;
   height?: number;
   disabled?: boolean;
   style?: ViewStyle;
 }) {
-  const travel = useRef(new Animated.Value(0)).current;
+  const press = useRef(new Animated.Value(0)).current;
 
   const move = (down: boolean) =>
-    Animated.timing(travel, {
-      toValue: down ? motion.buttonTravelPx : 0,
-      duration: motion.buttonTravelMs,
+    Animated.timing(press, {
+      toValue: down ? 1 : 0,
+      duration: motion.quickMs,
       useNativeDriver: true,
     }).start();
 
+  const kind: Exclude<Variant, 'signal' | 'slate'> =
+    variant === 'signal' ? 'primary' : variant === 'slate' ? 'secondary' : variant;
+
   const face =
-    variant === 'signal'
-      ? { backgroundColor: color.signal }
-      : { backgroundColor: color.slate2, borderWidth: 1, borderColor: color.hair };
-  const plinth = variant === 'signal' ? color.signalDown : '#0A0C0E';
+    kind === 'primary'
+      ? { backgroundColor: accent.action }
+      : kind === 'destructive'
+        ? { backgroundColor: surface.raised, borderWidth: 1, borderColor: surface.stroke }
+        : { backgroundColor: surface.overlay, borderWidth: 1, borderColor: surface.stroke };
+
+  const labelColor = disabled
+    ? text.disabled
+    : kind === 'primary'
+      ? '#141200' // black on yellow
+      : kind === 'destructive'
+        ? status.danger
+        : text.primary;
+
+  const disabledFace = disabled ? { backgroundColor: surface.raised, borderWidth: 0 } : null;
+
+  // A button press is a deliberate act, so it earns a haptic — primary gets a
+  // light impact, everything else the softer selection tick (§4).
+  const handlePress = () => {
+    if (kind === 'primary') tapPrimary();
+    else tick();
+    onPress();
+  };
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       onPressIn={() => move(true)}
       onPressOut={() => move(false)}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={[
-        {
-          borderRadius: 16,
-          backgroundColor: plinth,
-          paddingBottom: motion.buttonTravelPx,
-          opacity: disabled ? 0.45 : 1,
-        },
-        style,
-      ]}
+      accessibilityState={{ disabled }}
+      style={style}
     >
       <Animated.View
         style={[
           st.face,
           face,
-          variant === 'signal' && st.glow,
-          { height, transform: [{ translateY: travel }] },
+          disabledFace,
+          {
+            height,
+            opacity: press.interpolate({ inputRange: [0, 1], outputRange: [1, 0.9] }),
+            transform: [
+              { scale: press.interpolate({ inputRange: [0, 1], outputRange: [1, 0.98] }) },
+            ],
+          },
         ]}
       >
-        <Text style={[st.label, { fontSize: Math.max(16, Math.round(height * 0.3)) }]}>
+        <Text
+          style={[st.label, { color: labelColor, fontSize: Math.max(15, Math.round(height * 0.28)) }]}
+        >
           {label}
         </Text>
       </Animated.View>
@@ -73,19 +104,14 @@ export function PushButton({
 
 const st = StyleSheet.create({
   face: {
-    borderRadius: 16,
+    borderRadius: radius.button,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
   label: {
     fontFamily: font.display,
-    color: '#151100',
-    letterSpacing: 3,
+    letterSpacing: 2.5,
     textTransform: 'uppercase',
-  },
-  // The reference's signal-button halo: 0 14px 30px rgba(255,214,10,.32).
-  glow: {
-    boxShadow: '0 14px 30px rgba(255, 214, 10, 0.32)',
   },
 });

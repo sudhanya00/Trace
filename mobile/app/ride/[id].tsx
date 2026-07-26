@@ -1,11 +1,13 @@
 import * as Battery from 'expo-battery';
+import { showAlert } from '../../src/components/Dialog';
 import * as Device from 'expo-device';
 import * as Sharing from 'expo-sharing';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { captureRef } from 'react-native-view-shot';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { CrewContribution } from '../../src/components/CrewContribution';
 import { PushButton } from '../../src/components/PushButton';
 import { RideMap, Segments } from '../../src/components/RideMap';
 import { ShareCard, ShareCardData } from '../../src/components/ShareCard';
@@ -18,8 +20,11 @@ import {
   Ride,
   Route,
   routeForRide,
+  setRideCrew,
+  shareRideAsPost,
   submitRecordingReport,
   updateRide,
+  deleteRide,
 } from '../../src/lib/db';
 import { listLocalRides, LocalRide, pointsForRide, rideState } from '../../src/lib/localdb';
 import { color, font, layout } from '../../src/theme/tokens';
@@ -48,6 +53,8 @@ export default function RideDetail() {
   const [bikeName, setBikeName] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
+  const [crewId, setCrewId] = useState<string | null>(null);
+  const [shared, setShared] = useState(false);
   const [busy, setBusy] = useState(false);
   const cardRef = useRef<View>(null);
 
@@ -83,6 +90,7 @@ export default function RideDetail() {
       if (!ride || !alive) return;
       setTitle(ride.title ?? '');
       setNote(ride.note ?? '');
+      setCrewId(ride.crew_id ?? null);
       const segments = await ownTrackSegments(ride.id).catch(() => null);
       if (!alive) return;
       setDetail({ source: 'server', ride, segments });
@@ -114,13 +122,13 @@ export default function RideDetail() {
       await updateRide(detail.ride.id, { title: title.trim() || null, note: note.trim() || null });
       router.back();
     } catch (e) {
-      Alert.alert('Could not save', (e as Error).message);
+      showAlert('Could not save', (e as Error).message);
       setBusy(false);
     }
   };
 
   const report = () => {
-    Alert.alert(
+    showAlert(
       'Report bad recording?',
       'Sends us the point log for this ride with your device model — nothing else. It goes straight into fixing GPS.',
       [
@@ -151,9 +159,9 @@ export default function RideDetail() {
                   points: localPoints.slice(0, 5000),
                 }
               );
-              Alert.alert('Report sent', 'Thank you — this is exactly what tunes the recorder.');
+              showAlert('Report sent', 'Thank you — this is exactly what tunes the recorder.');
             } catch (e) {
-              Alert.alert('Could not send', (e as Error).message);
+              showAlert('Could not send', (e as Error).message);
             }
           },
         },
@@ -230,7 +238,49 @@ export default function RideDetail() {
           <>
             <Field label="Title" value={title} onChangeText={setTitle} placeholder="Sangla to Chitkul" autoCapitalize="sentences" style={{ marginTop: 26 }} />
             <Field label="Note" value={note} onChangeText={setNote} placeholder="Broken tarmac after the bridge." autoCapitalize="sentences" style={{ marginTop: 16 }} />
+
+            {/* Attribution stays changeable: the crew you meant may not be the
+                crew you tapped at the end of eight hours in the saddle. */}
+            <View style={{ marginTop: 22 }}>
+              <CrewContribution
+                value={crewId}
+                onChange={async (c) => {
+                  const prev = crewId;
+                  setCrewId(c);
+                  try {
+                    await setRideCrew(detail.ride.id, c);
+                  } catch (e) {
+                    setCrewId(prev);
+                    showAlert('Could not change the crew', (e as Error).message);
+                  }
+                }}
+                distanceKm={Number((detail.ride as Ride).distance_km)}
+              />
+            </View>
+
             <PushButton label="Save" variant="slate" onPress={save} disabled={busy} style={{ marginTop: 22 }} />
+            {/* Onto the feed as a post. Visibility follows the profile —
+                followers if private, everyone if public — so there is no
+                second privacy switch to get wrong. */}
+            <PushButton
+              label={shared ? 'Shared to feed' : 'Share as post'}
+              variant="slate"
+              disabled={shared || busy}
+              onPress={async () => {
+                if (!session) return;
+                setBusy(true);
+                try {
+                  await shareRideAsPost(session.user.id, detail.ride.id);
+                  setShared(true);
+                } catch (e) {
+                  showAlert('Could not share', (e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              style={{ marginTop: 14 }}
+            />
+
             {route ? (
               <PushButton
                 label="View route"
@@ -266,7 +316,7 @@ export default function RideDetail() {
                   dialogTitle: 'Share your ride',
                 });
               } catch (e) {
-                Alert.alert('Could not share', (e as Error).message);
+                showAlert('Could not share', (e as Error).message);
               }
             }}
             style={{ marginTop: 12 }}
@@ -276,6 +326,36 @@ export default function RideDetail() {
         {!isManual && (
           <Pressable onPress={report} style={st.reportRow}>
             <Text style={st.reportText}>Something wrong with this track? Report bad recording →</Text>
+          </Pressable>
+        )}
+
+        {/* Destructive, so it sits apart from the actions and says what goes. */}
+        {isServer && (
+          <Pressable
+            onPress={() =>
+              showAlert(
+                'Delete this ride?',
+                'The track, its distance and any crew contribution go with it. This cannot be undone.',
+                [
+                  { text: 'Keep it', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        await deleteRide(detail.ride.id);
+                        router.back();
+                      } catch (e) {
+                        showAlert('Could not delete', (e as Error).message);
+                      }
+                    },
+                  },
+                ]
+              )
+            }
+            style={st.deleteRow}
+          >
+            <Text style={st.deleteText}>Delete this ride</Text>
           </Pressable>
         )}
 
@@ -332,12 +412,14 @@ const st = StyleSheet.create({
     marginTop: 20,
   },
   gapRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 13 },
-  gapDash: { width: 18, borderTopWidth: 1.5, borderStyle: 'dashed', borderColor: color.signal, opacity: 0.7 },
+  gapDash: { width: 18, borderTopWidth: 1.5, borderStyle: 'dashed', borderColor: color.traceDim, opacity: 0.7 },
   gapText: { flex: 1, fontFamily: font.body, fontSize: 11, color: color.steel, lineHeight: 15 },
   gapStrong: { color: '#B9C0C3', fontFamily: font.bodyMedium },
   pendingNote: { fontFamily: font.body, fontSize: 12, color: color.steel, lineHeight: 17, marginTop: 22 },
   reportRow: { marginTop: 30, paddingVertical: 6 },
   reportText: { fontFamily: font.bodyMedium, fontSize: 12, color: color.steel },
+  deleteRow: { alignSelf: 'center', marginTop: 26, padding: 10 },
+  deleteText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.amber },
   back: { alignSelf: 'center', marginTop: 18, padding: 8 },
   backText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
 });

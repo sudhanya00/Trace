@@ -8,6 +8,25 @@
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/**
+ * Directions to a single point, handed to Google Maps.
+ *
+ * Getting to the meetup is a point-to-point drive with traffic and a deadline
+ * — exactly what Google Maps is best at, and what a rider would open anyway.
+ * TRACE's own following is for the ride itself, where the question is "am I
+ * still on the road", not "which lane".
+ */
+export function googleMapsPointUrl(
+  lat: number,
+  lng: number,
+  placeId?: string | null
+): string {
+  const base = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+  // A place ID pins the actual establishment rather than the nearest bit of
+  // road to its coordinates — and it's the one Google field we may store.
+  return placeId ? `${base}&destination_place_id=${encodeURIComponent(placeId)}` : base;
+}
+
 export function toGpx(name: string, segments: [number, number][][]): string {
   const trksegs = segments
     .filter((seg) => seg.length >= 2)

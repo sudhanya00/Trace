@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { showAlert } from '../../../src/components/Dialog';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -12,16 +12,20 @@ import {
   View,
 } from 'react-native';
 
-import { InviteCard } from '../../src/components/InviteCard';
-import { PushButton } from '../../src/components/PushButton';
-import { MonoLabel } from '../../src/components/ui';
-import { useAuth } from '../../src/lib/auth';
+import { Feather } from '@expo/vector-icons';
+
+import { InviteCard } from '../../../src/components/InviteCard';
+import { PushButton } from '../../../src/components/PushButton';
+import { MonoLabel } from '../../../src/components/ui';
+import { useAuth } from '../../../src/lib/auth';
 import {
   approveCrewMember,
   Crew,
   CrewMember,
   CrewMessage,
+  LiveRider,
   crewChat,
+  crewLiveRiders,
   crewRoster,
   declineCrewRequest,
   joinCrew,
@@ -31,9 +35,11 @@ import {
   RideInvite,
   rsvpInvite,
   sendCrewMessage,
-} from '../../src/lib/db';
-import { supabase } from '../../src/lib/supabase';
-import { color, font, layout } from '../../src/theme/tokens';
+  setCrewLeaderboard,
+} from '../../../src/lib/db';
+import { supabase } from '../../../src/lib/supabase';
+import { useKeyboardHeight } from '../../../src/lib/useKeyboardHeight';
+import { accent, color, font, layout } from '../../../src/theme/tokens';
 
 /**
  * The crew room: live chat over Supabase Realtime. The WAL stream respects
@@ -44,6 +50,8 @@ export default function CrewRoom() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { session } = useAuth();
   const [crew, setCrew] = useState<Crew | null>(null);
+  const kbHeight = useKeyboardHeight();
+  const [liveRiders, setLiveRiders] = useState<LiveRider[]>([]);
   const [roster, setRoster] = useState<Map<string, CrewMember>>(new Map());
   const [messages, setMessages] = useState<CrewMessage[]>([]);
   const [member, setMember] = useState(false);
@@ -66,6 +74,7 @@ export default function CrewRoom() {
     setRoster(new Map(r.filter((m) => m.state === 'active').map((m) => [m.profile_id, m])));
     setRequests(r.filter((m) => m.state === 'pending'));
     setMember(mine?.state === 'active');
+    crewLiveRiders(id).then(setLiveRiders).catch(() => {});
     setMessages(await crewChat(id).catch(() => []));
     setInvites(await listInvites(id).catch(() => []));
   }, [id, session]);
@@ -83,7 +92,18 @@ export default function CrewRoom() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'crew_messages', filter: `crew_id=eq.${id}` },
         (payload) => {
-          const row = payload.new as { id: string; profile_id: string; body: string; created_at: string };
+          // Contribution rows arrive here too — written by trigger, so they
+          // carry the same shape but no joined handle. The roster supplies it,
+          // exactly as it does for chat.
+          const row = payload.new as {
+            id: string;
+            profile_id: string;
+            body: string;
+            kind?: 'chat' | 'contribution' | 'live_share';
+            ride_id?: string | null;
+            distance_km?: number | null;
+            created_at: string;
+          };
           setMessages((prev) =>
             prev.some((m) => m.id === row.id)
               ? prev
@@ -93,6 +113,9 @@ export default function CrewRoom() {
                     profile_id: row.profile_id,
                     handle: rosterRef.current.get(row.profile_id)?.handle ?? 'rider',
                     body: row.body,
+                    kind: row.kind ?? 'chat',
+                    ride_id: row.ride_id ?? null,
+                    distance_km: row.distance_km ?? null,
                     created_at: row.created_at,
                   },
                   ...prev,
@@ -114,7 +137,7 @@ export default function CrewRoom() {
       await sendCrewMessage(session.user.id, id, body);
     } catch (e) {
       setDraft(body);
-      Alert.alert('Could not send', (e as Error).message);
+      showAlert('Could not send', (e as Error).message);
     }
   };
 
@@ -124,7 +147,7 @@ export default function CrewRoom() {
       await joinCrew(session.user.id, id);
       load();
     } catch (e) {
-      Alert.alert('Could not join', (e as Error).message);
+      showAlert('Could not join', (e as Error).message);
     }
   };
 
@@ -136,7 +159,7 @@ export default function CrewRoom() {
 
   const onLeave = () => {
     if (!session || !id) return;
-    Alert.alert('Leave this crew?', undefined, [
+    showAlert('Leave this crew?', undefined, [
       { text: 'Stay', style: 'cancel' },
       {
         text: 'Leave',
@@ -162,7 +185,13 @@ export default function CrewRoom() {
             <MonoLabel size={9}>
               {[crew.region, `${roster.size} rider${roster.size === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
             </MonoLabel>
-            <Text style={st.h1}>{crew.name}</Text>
+            {/* WhatsApp's move: the title is the way into the crew itself. */}
+            <Pressable onPress={() => router.push(`/crew/${id}/about`)} hitSlop={6}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                <Text style={st.h1}>{crew.name}</Text>
+                <Feather name="chevron-right" size={17} color={color.steel} />
+              </View>
+            </Pressable>
           </View>
           <Pressable onPress={() => router.back()} style={{ padding: 8 }}>
             <Text style={st.backText}>Back</Text>
@@ -172,6 +201,20 @@ export default function CrewRoom() {
 
       {member ? (
         <>
+          {/* Who's out right now. Self-cleaning: nothing older than 15 minutes
+              counts as live, so this empties itself when riders park. */}
+          {liveRiders.length > 0 && (
+            <Pressable onPress={() => router.push(`/crew/${id}/live`)} style={st.liveBanner}>
+              <View style={st.livePulse} />
+              <Text style={st.liveBannerText} numberOfLines={1}>
+                {liveRiders.length === 1
+                  ? `@${liveRiders[0].handle} is riding now`
+                  : `${liveRiders.length} riders out now`}
+              </Text>
+              <Feather name="chevron-right" size={15} color={accent.trace} />
+            </Pressable>
+          )}
+
           {isAdmin && requests.length > 0 && (
             <View style={st.requestsWrap}>
               <MonoLabel size={8.5} style={{ marginBottom: 8 }}>
@@ -189,7 +232,7 @@ export default function CrewRoom() {
                     }}
                     style={[st.reqBtn, st.reqBtnOn]}
                   >
-                    <Text style={[st.reqBtnText, { color: color.signal }]}>LET IN</Text>
+                    <Text style={[st.reqBtnText, { color: color.white }]}>LET IN</Text>
                   </Pressable>
                   <Pressable
                     onPress={async () => {
@@ -210,15 +253,34 @@ export default function CrewRoom() {
                 <InviteCard
                   key={i.id}
                   invite={i}
-                  onToggle={async (going) => {
+                  onOpen={() => router.push(`/invite/${i.id}`)}
+                  onToggle={async (going, answers) => {
                     if (!session) return;
-                    await rsvpInvite(session.user.id, i.id, going).catch(() => {});
+                    await rsvpInvite(session.user.id, i.id, going, answers).catch(() => {});
                     setInvites(await listInvites(id!).catch(() => invites));
                   }}
                 />
               ))}
             </View>
           )}
+          {/* The crew's own choice, made once by an admin (item 6). Kept
+              separate from private/open — they answer different questions. */}
+          {isAdmin && (
+            <Pressable
+              onPress={async () => {
+                const next = !crew.on_leaderboard;
+                setCrew({ ...crew, on_leaderboard: next });
+                await setCrewLeaderboard(id!, next).catch(() => setCrew(crew));
+              }}
+              style={st.boardRow}
+            >
+              <Text style={[st.boardText, crew.on_leaderboard && { color: color.white }]}>
+                {crew.on_leaderboard ? 'ON THE GLOBAL LEADERBOARD' : 'JOIN THE GLOBAL LEADERBOARD'}
+              </Text>
+              <View style={[st.check, crew.on_leaderboard && st.checkOn]} />
+            </Pressable>
+          )}
+
           <Pressable onPress={() => router.push(`/invite/new?crewId=${id}`)} style={st.planRow}>
             <Text style={st.planText}>+ PLAN A RIDE</Text>
           </Pressable>
@@ -231,6 +293,36 @@ export default function CrewRoom() {
               <Text style={st.empty}>Quiet in here. Say where you're riding this weekend.</Text>
             }
             renderItem={({ item }) => {
+              // A contribution is an event in the crew's life, not something
+              // somebody said — so it spans the room instead of taking a side.
+              // "@asha is sharing live location" — an event, said once when
+              // they set off. The banner above is what stays current.
+              if (item.kind === 'live_share') {
+                return (
+                  <View style={st.liveMsg}>
+                    <View style={st.liveMsgDot} />
+                    <Text style={st.liveMsgText}>
+                      <Text style={st.liveMsgWho}>@{item.handle}</Text> {item.body}
+                    </Text>
+                  </View>
+                );
+              }
+              if (item.kind === 'contribution') {
+                return (
+                  <Pressable
+                    onPress={() => item.ride_id && router.push(`/ride/${item.ride_id}`)}
+                    style={st.contribution}
+                  >
+                    <View style={st.contribDot} />
+                    <Text style={st.contribText}>
+                      <Text style={st.contribWho}>@{item.handle}</Text> contributed{' '}
+                      <Text style={st.contribKm}>
+                        {Number(item.distance_km ?? 0).toFixed(1)} km
+                      </Text>
+                    </Text>
+                  </Pressable>
+                );
+              }
               const own = item.profile_id === session?.user.id;
               return (
                 <View style={[st.msg, own && st.msgOwn]}>
@@ -243,7 +335,9 @@ export default function CrewRoom() {
               );
             }}
           />
-          <View style={st.inputRow}>
+          {/* Lifted by the measured keyboard height: edge-to-edge means the
+              window never resizes, so nothing moves this on its own. */}
+          <View style={[st.inputRow, { marginBottom: kbHeight }]}>
             <TextInput
               value={draft}
               onChangeText={setDraft}
@@ -256,9 +350,11 @@ export default function CrewRoom() {
               <Text style={st.sendText}>SEND</Text>
             </Pressable>
           </View>
-          <Pressable onPress={onLeave} style={st.leaveRow}>
-            <Text style={st.leaveText}>Leave crew</Text>
-          </Pressable>
+          {kbHeight === 0 && (
+            <Pressable onPress={onLeave} style={st.leaveRow}>
+              <Text style={st.leaveText}>Leave crew</Text>
+            </Pressable>
+          )}
         </>
       ) : pendingMe ? (
         <View style={st.joinWrap}>
@@ -371,6 +467,80 @@ const st = StyleSheet.create({
 
   invitesStrip: { paddingHorizontal: layout.screenPadding, paddingTop: 12 },
   planRow: { alignSelf: 'flex-end', paddingHorizontal: layout.screenPadding, paddingVertical: 8 },
+  liveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: layout.screenPadding,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: 'rgba(255,201,51,0.28)',
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,201,51,0.08)',
+  },
+  livePulse: { width: 7, height: 7, borderRadius: 4, backgroundColor: accent.trace },
+  liveBannerText: { flex: 1, fontFamily: font.bodySemi, fontSize: 13, color: accent.trace },
+  liveMsg: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    alignSelf: 'stretch',
+    marginVertical: 8,
+    paddingVertical: 8,
+  },
+  liveMsgDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: accent.trace },
+  liveMsgText: { fontFamily: font.body, fontSize: 11.5, color: color.dim },
+  liveMsgWho: { fontFamily: font.bodySemi, color: color.steel },
+  contribution: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+    alignSelf: 'stretch',
+    marginVertical: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate,
+  },
+  contribDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: color.white },
+  contribText: { fontFamily: font.body, fontSize: 12, color: color.steel },
+  contribWho: { fontFamily: font.bodySemi, color: color.white },
+  contribKm: { fontFamily: font.bodyBold, color: color.white, fontVariant: ['tabular-nums'] },
+  boardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: layout.screenPadding,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  boardText: {
+    flex: 1,
+    fontFamily: font.mono,
+    fontSize: 8.5,
+    letterSpacing: 1.2,
+    color: color.steel,
+  },
+  check: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate2,
+  },
+  checkOn: { backgroundColor: color.white, borderColor: color.white },
   planText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
   joinWrap: { flex: 1, paddingHorizontal: layout.screenPadding, paddingTop: 26 },
   desc: { fontFamily: font.body, fontSize: 13.5, color: '#B9C0C3', lineHeight: 20 },

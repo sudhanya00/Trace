@@ -1,9 +1,9 @@
 import { File, Paths } from 'expo-file-system';
+import { showAlert } from '../../src/components/Dialog';
 import * as Sharing from 'expo-sharing';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -101,7 +101,7 @@ export default function RouteDetail() {
       setComment('');
       loadTalk();
     } catch (e) {
-      Alert.alert('Could not post', (e as Error).message);
+      showAlert('Could not post', (e as Error).message);
     }
   };
 
@@ -113,14 +113,14 @@ export default function RouteDetail() {
       setReporting(false);
       loadTalk();
     } catch (e) {
-      Alert.alert('Could not report', (e as Error).message);
+      showAlert('Could not report', (e as Error).message);
     }
   };
 
   const onCommentLongPress = (c: ThreadComment) => {
     if (!session) return;
     if (c.profile_id === session.user.id) {
-      Alert.alert('Delete your comment?', undefined, [
+      showAlert('Delete your comment?', undefined, [
         { text: 'Keep it', style: 'cancel' },
         {
           text: 'Delete',
@@ -132,7 +132,7 @@ export default function RouteDetail() {
         },
       ]);
     } else {
-      Alert.alert('Flag this comment?', 'Sends it to us for review.', [
+      showAlert('Flag this comment?', 'Sends it to us for review.', [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Flag',
@@ -159,7 +159,7 @@ export default function RouteDetail() {
         dialogTitle: 'Navigate with…',
       });
     } catch (e) {
-      Alert.alert('Could not export', (e as Error).message);
+      showAlert('Could not export', (e as Error).message);
     }
   };
 
@@ -196,13 +196,22 @@ export default function RouteDetail() {
         />
       </View>
 
-      {/* §10: the handoff. We don't build turn-by-turn — that's the wedge. */}
+      {/* Follow in-app: the road drawn, your position on it, nothing spoken.
+          Still no turn-by-turn (§6) — that's a different product. */}
       <PushButton
-        label="Navigate"
-        onPress={navigate}
-        disabled={!segments?.length}
+        label="Follow this route"
+        onPress={() => router.push(`/route/follow?id=${route.id}`)}
         height={64}
         style={{ marginTop: 26 }}
+      />
+
+      {/* §10: the handoff, for riders who want spoken directions. */}
+      <PushButton
+        label="Export for navigation"
+        variant="secondary"
+        onPress={navigate}
+        disabled={!segments?.length}
+        style={{ marginTop: 12 }}
       />
       <Pressable onPress={openGoogleMaps} style={st.gmapsRow} disabled={!segments?.length}>
         <Text style={st.gmapsText}>Open waypoints in Google Maps →</Text>

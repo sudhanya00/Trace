@@ -86,7 +86,7 @@ export function RideMap({ segments, height = 220, style }: { segments: Segments;
             source="ride-track"
             filter={['!=', ['get', 'kind'], 'gap']}
             layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-            paint={{ 'line-color': '#FFDE47', 'line-width': 3.4 }}
+            paint={{ 'line-color': color.trace, 'line-width': 3.4 }}
           />
           <Layer
             type="line"
@@ -95,7 +95,7 @@ export function RideMap({ segments, height = 220, style }: { segments: Segments;
             filter={['==', ['get', 'kind'], 'gap']}
             layout={{ 'line-cap': 'round' }}
             paint={{
-              'line-color': color.signal,
+              'line-color': color.trace,
               'line-width': 2.2,
               'line-dasharray': [1.5, 3.5],
               'line-opacity': 0.55,

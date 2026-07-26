@@ -1,6 +1,7 @@
 import { router, useFocusEffect } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useCallback, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PushButton } from '../../src/components/PushButton';
 import { Card, Field, MonoLabel } from '../../src/components/ui';
@@ -18,6 +19,7 @@ export default function Crews() {
   const [region, setRegion] = useState('');
   const [description, setDescription] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [onBoard, setOnBoard] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useFocusEffect(
@@ -40,10 +42,11 @@ export default function Crews() {
         region: region.trim() || null,
         description: description.trim() || null,
         is_private: isPrivate,
+        on_leaderboard: onBoard,
       });
       router.push(`/crew/${crew.id}`);
     } catch (e) {
-      Alert.alert('Could not create crew', (e as Error).message);
+      showAlert('Could not create crew', (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -97,12 +100,31 @@ export default function Crews() {
               </MonoLabel>
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <Pressable onPress={() => setIsPrivate(false)} style={[st.privChip, !isPrivate && st.privChipOn]}>
-                  <Text style={[st.privChipText, !isPrivate && { color: color.signal }]}>OPEN — ANYONE JOINS</Text>
+                  <Text style={[st.privChipText, !isPrivate && { color: color.white }]}>OPEN — ANYONE JOINS</Text>
                 </Pressable>
                 <Pressable onPress={() => setIsPrivate(true)} style={[st.privChip, isPrivate && st.privChipOn]}>
-                  <Text style={[st.privChipText, isPrivate && { color: color.signal }]}>PRIVATE — YOU APPROVE</Text>
+                  <Text style={[st.privChipText, isPrivate && { color: color.white }]}>PRIVATE — YOU APPROVE</Text>
                 </Pressable>
               </View>
+
+              {/* Separate from privacy on purpose (item 6): an open crew can
+                  stay off the board, a private one can compete on it. */}
+              <MonoLabel size={8.5} style={{ marginTop: 16, marginBottom: 8 }}>
+                Global leaderboard
+              </MonoLabel>
+              <Pressable onPress={() => setOnBoard((v) => !v)} style={[st.boardRow, onBoard && st.privChipOn]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[st.boardText, onBoard && { color: color.white }]}>
+                    {onBoard ? 'COMPETING' : 'NOT ON THE BOARD'}
+                  </Text>
+                  <Text style={st.boardSub}>
+                    Ranks the crew on riders and distance. Totals only — no member&apos;s rides are
+                    ever shown.
+                  </Text>
+                </View>
+                <View style={[st.check, onBoard && st.checkOn]} />
+              </Pressable>
+
               <PushButton label="Start the crew" onPress={submit} disabled={busy || name.trim().length < 3} style={{ marginTop: 18 }} />
               <Pressable onPress={() => setCreating(false)} style={st.cancelRow}>
                 <Text style={st.cancelText}>Cancel</Text>
@@ -146,10 +168,10 @@ const st = StyleSheet.create({
     fontFamily: font.mono,
     fontSize: 8,
     letterSpacing: 1.2,
-    color: color.signal,
+    color: color.white,
     borderWidth: 1,
-    borderColor: 'rgba(255,214,10,.3)',
-    backgroundColor: 'rgba(255,214,10,.14)',
+    borderColor: color.hair,
+    backgroundColor: color.slate2,
     borderRadius: 3,
     paddingHorizontal: 7,
     paddingVertical: 3.5,
@@ -174,8 +196,30 @@ const st = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 10,
   },
-  privChipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  privChipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   privChipText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1, color: color.steel },
+  boardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  boardText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1, color: color.steel },
+  boardSub: { fontFamily: font.body, fontSize: 11, color: color.dim, marginTop: 5, lineHeight: 16 },
+  check: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate2,
+  },
+  checkOn: { backgroundColor: color.white, borderColor: color.white },
   cancelRow: { alignSelf: 'center', marginTop: 14, padding: 8 },
   cancelText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
   back: { alignSelf: 'center', marginBottom: 28, padding: 8 },

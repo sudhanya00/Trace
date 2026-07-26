@@ -41,9 +41,9 @@ export const ShareCard = forwardRef<View, { data: ShareCardData }>(function Shar
         <Svg width={CW} height={MAP_H} viewBox={`0 0 ${CW} ${MAP_H}`}>
           <Defs>
             <SvgGrad id="strk" x1="0" y1="1" x2="1" y2="0">
-              <Stop offset="0" stopColor="#FFD60A" stopOpacity="0.35" />
-              <Stop offset="0.55" stopColor="#FFDE47" stopOpacity="0.85" />
-              <Stop offset="1" stopColor="#FFF1A6" stopOpacity="1" />
+              <Stop offset="0" stopColor={color.trace} stopOpacity="0.4" />
+              <Stop offset="0.55" stopColor={color.trace} stopOpacity="0.9" />
+              <Stop offset="1" stopColor={color.trace} stopOpacity="1" />
             </SvgGrad>
           </Defs>
           {!data.photoUri && (
@@ -75,7 +75,7 @@ export const ShareCard = forwardRef<View, { data: ShareCardData }>(function Shar
                 y1={prev[prev.length - 1][1]}
                 x2={seg[0][0]}
                 y2={seg[0][1]}
-                stroke={color.signal}
+                stroke={color.traceDim}
                 strokeWidth={2.2}
                 strokeDasharray="3 7"
                 strokeLinecap="round"

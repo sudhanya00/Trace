@@ -1,58 +1,255 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { useState } from 'react';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { RideInvite } from '../lib/db';
-import { color, font } from '../theme/tokens';
-import { Card, MonoLabel } from './ui';
+import { googleMapsPointUrl } from '../lib/gpx';
 
-function fmtWhen(iso: string): string {
-  const d = new Date(iso);
-  const days = Math.floor((+d - Date.now()) / 86400000);
-  const day =
-    days <= 0
-      ? 'Today'
-      : days === 1
-        ? 'Tomorrow'
-        : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
-  return `${day} · ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+import {
+  BIKE_TYPES,
+  BikeType,
+  EXPERIENCE,
+  Experience,
+  inviteAsks,
+  multiLineCoords,
+  RideInvite,
+  RsvpAnswers,
+} from '../lib/db';
+import { TrackThumb } from './TrackThumb';
+import { whenLabel } from '../lib/when';
+import { accent, color, font } from '../theme/tokens';
+import { PushButton } from './PushButton';
+import { Sheet } from './Sheet';
+import { Card, ChipSelect, MonoLabel, YesNo } from './ui';
+
+/** The ride's shape, read back as a line of requirements. */
+function requirements(i: RideInvite): string[] {
+  const out: string[] = [];
+  if (i.bike_category) out.push(i.bike_category === 'any' ? 'ANY BIKE' : i.bike_category.toUpperCase());
+  if (i.gear_required) out.push('FULL GEAR');
+  else if (i.gear_required === false) out.push('GEAR OPTIONAL');
+  if (i.min_experience && i.min_experience !== 'any') out.push(`${i.min_experience.toUpperCase()}+`);
+  if (i.difficulty) out.push(i.difficulty.toUpperCase());
+  return out;
 }
 
-/** One planned ride, anywhere it appears: board or crew room. */
+/** What this rider answered, read back so they can check and correct it. */
+function myAnswers(i: RideInvite): string {
+  const out: string[] = [];
+  if (i.my_bike_category) out.push(i.my_bike_category);
+  if (i.my_has_gear != null) out.push(i.my_has_gear ? 'has gear' : 'no gear');
+  if (i.my_experience) out.push(i.my_experience);
+  return out.join(' · ');
+}
+
+/**
+ * The questions a ride asks before you join. Lives apart from the card
+ * because the same ride can be joined from the card or from its detail page,
+ * and a rider should be asked the same things either way.
+ */
+export function JoinSheet({
+  invite,
+  visible,
+  onClose,
+  onConfirm,
+}: {
+  invite: RideInvite;
+  visible: boolean;
+  onClose: () => void;
+  onConfirm: (answers: RsvpAnswers) => void;
+}) {
+  const asks = inviteAsks(invite);
+  const [bike, setBike] = useState<BikeType | null>(invite.my_bike_category);
+  const [gear, setGear] = useState<boolean | null>(invite.my_has_gear);
+  const [exp, setExp] = useState<Experience | null>(invite.my_experience);
+
+  // Every question the ride asked needs an answer before the RSVP counts.
+  const complete =
+    (!asks.includes('bike_category') || bike != null) &&
+    (!asks.includes('has_gear') || gear != null) &&
+    (!asks.includes('experience') || exp != null);
+
+  return (
+    <Sheet visible={visible} onClose={onClose} label={invite.title} title="Before you join">
+      {asks.includes('bike_category') && (
+        <ChipSelect
+          label="What are you riding?"
+          options={BIKE_TYPES}
+          value={bike}
+          onChange={setBike}
+          style={{ marginBottom: 20 }}
+        />
+      )}
+      {asks.includes('has_gear') && (
+        <YesNo
+          label={
+            invite.gear_required ? 'Full gear is required — do you have it?' : 'Riding in full gear?'
+          }
+          value={gear}
+          onChange={setGear}
+          style={{ marginBottom: 20 }}
+        />
+      )}
+      {asks.includes('experience') && (
+        <ChipSelect
+          label="How much riding have you done?"
+          options={EXPERIENCE}
+          value={exp}
+          onChange={setExp}
+          style={{ marginBottom: 20 }}
+        />
+      )}
+
+      {/* An honest no is useful information, not a rejection. The ride's own
+          requirements are on the card above; the rider decides. */}
+      {invite.gear_required && gear === false && (
+        <Text style={st.warn}>
+          This ride asks for full gear. You can still join — the crew will know to expect you
+          without it.
+        </Text>
+      )}
+
+      <PushButton
+        label={invite.i_am_in ? 'Save' : "I'm in"}
+        onPress={() =>
+          onConfirm({
+            ...(asks.includes('bike_category') ? { bike_category: bike } : {}),
+            ...(asks.includes('has_gear') ? { has_gear: gear } : {}),
+            ...(asks.includes('experience') ? { experience: exp } : {}),
+          })
+        }
+        disabled={!complete}
+        style={{ marginTop: 4, marginBottom: 8 }}
+      />
+    </Sheet>
+  );
+}
+
+/**
+ * One planned ride, anywhere it appears: board, crew room, or explore feed.
+ * Joining asks whatever the creator asked (item 7, 2026-07-21) — and nothing
+ * more, because a question the ride didn't pose is friction with no payoff.
+ *
+ * The card is a summary and a yes/no. Everything else the ride knows — the
+ * plan, the road, who else is coming — lives a tap away on its own page
+ * (item 1, 2026-07-25), so the card stays readable in a feed.
+ */
 export function InviteCard({
   invite,
   onToggle,
+  onOpen,
 }: {
   invite: RideInvite;
-  onToggle: (going: boolean) => void;
+  onToggle: (going: boolean, answers?: RsvpAnswers) => void;
+  onOpen?: () => void;
 }) {
-  return (
-    <Card active={invite.i_am_in} style={{ marginBottom: 10 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-        <View style={{ flex: 1 }}>
-          <MonoLabel size={8.5} style={{ letterSpacing: 1.4 }}>
-            {fmtWhen(invite.starts_at).toUpperCase()}
-            {invite.region ? ` — ${invite.region.toUpperCase()}` : ''}
-          </MonoLabel>
-          <Text style={st.title}>{invite.title}</Text>
-          <Text style={st.sub}>
-            @{invite.handle}
-            {invite.meetup ? ` · ${invite.meetup}` : ''}
-          </Text>
+  const asks = inviteAsks(invite);
+  const [sheet, setSheet] = useState(false);
+
+  const reqs = requirements(invite);
+  const answered = myAnswers(invite);
+
+  const press = () => {
+    if (invite.i_am_in) return onToggle(false); // dropping out asks nothing
+    if (asks.length === 0) return onToggle(true);
+    setSheet(true);
+  };
+
+  const confirm = (answers: RsvpAnswers) => {
+    setSheet(false);
+    onToggle(true, answers);
+  };
+
+  const body = (down: boolean) => (
+    <Card active={invite.i_am_in} pressed={down} style={{ marginBottom: 10 }}>
+      <>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+          {/* A planned ride with a mapped route shows the road itself (§4.4) —
+              a shape beats a title string. Adhoc routes have no geometry, so
+              TrackThumb draws its ghosted placeholder instead. */}
+          {invite.route_geom ? (
+            <TrackThumb id={invite.route_id ?? undefined} segments={multiLineCoords(invite.route_geom)} />
+          ) : null}
+          <View style={{ flex: 1 }}>
+            <MonoLabel size={8.5} style={{ letterSpacing: 1.4 }}>
+              {whenLabel(invite.starts_at).toUpperCase()}
+              {invite.region ? ` — ${invite.region.toUpperCase()}` : ''}
+            </MonoLabel>
+            <Text style={st.title}>{invite.title}</Text>
+            <Text style={st.sub}>
+              @{invite.handle}
+              {invite.meetup ? ` · ${invite.meetup}` : ''}
+              {invite.route_distance_km
+                ? ` · ${Number(invite.route_distance_km).toFixed(0)} km`
+                : ''}
+            </Text>
+          </View>
+          <View style={{ alignItems: 'center', gap: 6 }}>
+            <Pressable onPress={press} style={[st.rsvpBtn, invite.i_am_in && st.rsvpBtnOn]}>
+              <Text style={[st.rsvpText, invite.i_am_in && { color: color.white }]}>
+                {invite.i_am_in ? "I'M IN" : 'COUNT ME IN'}
+              </Text>
+            </Pressable>
+            <Text style={st.count} allowFontScaling={false}>
+              {invite.rsvp_count} going
+            </Text>
+          </View>
         </View>
-        <View style={{ alignItems: 'center', gap: 6 }}>
+
+        {reqs.length > 0 && (
+          <View style={st.reqRow}>
+            {reqs.map((r) => (
+              <Text key={r} style={st.req}>
+                {r}
+              </Text>
+            ))}
+          </View>
+        )}
+
+        {/* The pin the creator dropped, made useful: getting to the meetup is
+            a point-to-point drive with a deadline, so hand it to Google Maps
+            rather than pretending to navigate it ourselves. */}
+        {invite.meetup_lat != null && invite.meetup_lng != null && (
           <Pressable
-            onPress={() => onToggle(!invite.i_am_in)}
-            style={[st.rsvpBtn, invite.i_am_in && st.rsvpBtnOn]}
+            onPress={() =>
+              Linking.openURL(
+                googleMapsPointUrl(invite.meetup_lat!, invite.meetup_lng!, invite.meetup_place_id)
+              ).catch(() => {})
+            }
+            style={st.meetRow}
           >
-            <Text style={[st.rsvpText, invite.i_am_in && { color: color.signal }]}>
-              {invite.i_am_in ? "I'M IN" : 'COUNT ME IN'}
+            <Feather name="navigation" size={13} color={accent.trace} />
+            <Text style={st.meetText} numberOfLines={1}>
+              Take me to the meetup
             </Text>
           </Pressable>
-          <Text style={st.count} allowFontScaling={false}>
-            {invite.rsvp_count} going
-          </Text>
-        </View>
-      </View>
+        )}
+
+        {invite.i_am_in && answered ? (
+          <Pressable onPress={() => setSheet(true)} hitSlop={6}>
+            <Text style={st.mine}>You: {answered} — tap to change</Text>
+          </Pressable>
+        ) : null}
+      </>
     </Card>
+  );
+
+  return (
+    <>
+      {/* The card opens the ride; the controls inside it still win their own
+          taps, so a quick RSVP stays one press from the feed. */}
+      {onOpen ? (
+        <Pressable onPress={onOpen}>{({ pressed }) => body(pressed)}</Pressable>
+      ) : (
+        body(false)
+      )}
+
+      <JoinSheet
+        invite={invite}
+        visible={sheet}
+        onClose={() => setSheet(false)}
+        onConfirm={confirm}
+      />
+    </>
   );
 }
 
@@ -74,7 +271,29 @@ const st = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
-  rsvpBtnOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  rsvpBtnOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   rsvpText: { fontFamily: font.mono, fontSize: 8, letterSpacing: 1.2, color: color.steel },
   count: { fontFamily: font.mono, fontSize: 8.5, color: color.dim, fontVariant: ['tabular-nums'] },
+  reqRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
+  req: {
+    fontFamily: font.mono,
+    fontSize: 7.5,
+    letterSpacing: 1.2,
+    color: color.steel,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3.5,
+  },
+  mine: { fontFamily: font.body, fontSize: 11, color: color.dim, marginTop: 10 },
+  meetRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 12 },
+  meetText: { fontFamily: font.bodyMedium, fontSize: 12.5, color: accent.trace },
+  warn: {
+    fontFamily: font.body,
+    fontSize: 12,
+    color: color.amber,
+    lineHeight: 18,
+    marginBottom: 16,
+  },
 });

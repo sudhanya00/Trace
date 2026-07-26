@@ -1,32 +1,23 @@
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Tabs } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
-import { color, font, shadow } from '../../src/theme/tokens';
+import { tick } from '../../src/lib/haptics';
+import { color, font } from '../../src/theme/tokens';
 
-/** Active icons sit in a lit puck — the light source the nav needed. */
+/** §2.4: no puck, no glow. Active is simply white, inactive tertiary — the
+ *  contrast is the signal. Nav never wears the action colour. */
 function TabIcon({ name, focused }: { name: keyof typeof Feather.glyphMap; focused: boolean }) {
   return (
-    <View style={[ti.puck, focused && ti.puckOn]}>
-      <Feather name={name} size={19} color={focused ? color.signal : color.dim} />
+    <View style={ti.slot}>
+      <Feather name={name} size={20} color={focused ? color.white : color.dim} />
     </View>
   );
 }
 
 const ti = StyleSheet.create({
-  puck: {
-    width: 40,
-    height: 30,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  puckOn: {
-    backgroundColor: 'rgba(255,214,10,0.14)',
-    boxShadow: shadow.signalGlow,
-  },
+  slot: { width: 40, height: 30, alignItems: 'center', justifyContent: 'center' },
 });
 
 /**
@@ -36,6 +27,7 @@ const ti = StyleSheet.create({
 export default function TabsLayout() {
   return (
     <Tabs
+      screenListeners={{ tabPress: () => tick() }}
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: color.void },
@@ -51,20 +43,16 @@ export default function TabsLayout() {
         },
         tabBarBackground: () => (
           <View style={{ flex: 1 }}>
-            <LinearGradient
-              colors={['rgba(255,214,10,0)', 'rgba(255,214,10,0.35)', 'rgba(255,214,10,0)']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={{ height: 1.25 }}
-            />
+            {/* A plain hairline, not a lit yellow gradient. Frosted bar stays —
+                it's texture, not a glow. */}
+            <View style={{ height: 1, backgroundColor: color.hair }} />
             <BlurView
-              intensity={48}
+              intensity={40}
               tint="dark"
-              style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.42)' }}
+              style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }}
             />
           </View>
         ),
-        // Prototype: active icon is signal, active label is white.
         tabBarActiveTintColor: color.white,
         tabBarInactiveTintColor: color.dim,
         tabBarLabelStyle: {
@@ -83,17 +71,12 @@ export default function TabsLayout() {
           tabBarIcon: ({ focused }) => <TabIcon name="compass" focused={focused} />,
         }}
       />
-      <Tabs.Screen
-        name="trace"
-        options={{
-          title: 'TRACE',
-          tabBarIcon: ({ focused }) => <TabIcon name="activity" focused={focused} />,
-        }}
-      />
+      {/* Trace merged into Record (2026-07-25): both were a dark map of your
+          riding, and one screen with a visible toggle beats two tabs. */}
       <Tabs.Screen
         name="record"
         options={{
-          title: 'RECORD',
+          title: 'RIDE',
           tabBarIcon: ({ focused }) => <TabIcon name="disc" focused={focused} />,
         }}
       />

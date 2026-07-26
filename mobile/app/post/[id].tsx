@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useCallback, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,6 +12,10 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 
+import { Feather } from '@expo/vector-icons';
+
+import { Avatar } from '../../src/components/Avatar';
+import { PostActions } from '../../src/components/PostActions';
 import { Field, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import {
@@ -56,14 +60,16 @@ export default function PostDetail() {
       setReply('');
       load();
     } catch (e) {
-      Alert.alert('Could not reply', (e as Error).message);
+      showAlert('Could not reply', (e as Error).message);
     }
   };
 
+  // Long-press still works, but it was the ONLY way to reach this — an
+  // invisible affordance is not a feature. There's a visible ⋯ now too.
   const onLongPressPost = () => {
     if (!session || !post) return;
     if (post.profile_id === session.user.id) {
-      Alert.alert('Delete this post?', undefined, [
+      showAlert('Delete this post?', undefined, [
         { text: 'Keep it', style: 'cancel' },
         {
           text: 'Delete',
@@ -75,7 +81,7 @@ export default function PostDetail() {
         },
       ]);
     } else {
-      Alert.alert('Flag this post?', 'Sends it to us for review.', [
+      showAlert('Flag this post?', 'Sends it to us for review.', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Flag', onPress: () => flagPost(session.user.id, post.id).catch(() => {}) },
       ]);
@@ -84,7 +90,7 @@ export default function PostDetail() {
 
   const onLongPressComment = (c: PostComment) => {
     if (!session || c.profile_id !== session.user.id) return;
-    Alert.alert('Delete your reply?', undefined, [
+    showAlert('Delete your reply?', undefined, [
       { text: 'Keep it', style: 'cancel' },
       {
         text: 'Delete',
@@ -106,15 +112,26 @@ export default function PostDetail() {
     >
       <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
         <Pressable onLongPress={onLongPressPost}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <Pressable onPress={() => router.push(`/rider/${post.profile_id}`)} hitSlop={6}>
+              <Avatar url={post.avatar_url} handle={post.handle} size={36} />
+            </Pressable>
+            <Pressable
+              onPress={() => router.push(`/rider/${post.profile_id}`)}
+              hitSlop={6}
+              style={{ flex: 1 }}
+            >
               <Text style={st.author}>@{post.handle}</Text>
             </Pressable>
-            <Text style={st.tag}>{post.tag.toUpperCase()}</Text>
             <Text style={st.when}>{ago(post.created_at)}</Text>
+            <Pressable onPress={onLongPressPost} hitSlop={10} style={{ padding: 4 }}>
+              <Feather name="more-horizontal" size={18} color={color.steel} />
+            </Pressable>
           </View>
-          <Text style={st.body}>{post.body}</Text>
+          {post.body?.trim() ? <Text style={st.body}>{post.body}</Text> : null}
         </Pressable>
+
+        <PostActions post={post} onChanged={load} />
 
         <MonoLabel size={9} style={{ marginTop: 26, marginBottom: 4 }}>
           Replies · {thread.length}
@@ -162,17 +179,6 @@ const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.void },
   content: { paddingHorizontal: layout.screenPadding, paddingTop: 76, paddingBottom: 60 },
   author: { fontFamily: font.bodySemi, fontSize: 14, color: color.white },
-  tag: {
-    fontFamily: font.mono,
-    fontSize: 7.5,
-    letterSpacing: 1.2,
-    color: color.steel,
-    borderWidth: 1,
-    borderColor: color.hair,
-    borderRadius: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 2.5,
-  },
   when: { fontFamily: font.mono, fontSize: 8.5, color: color.dim },
   body: { fontFamily: font.body, fontSize: 15, color: '#D7DBDD', lineHeight: 22, marginTop: 12 },
   empty: { fontFamily: font.body, fontSize: 12.5, color: color.dim, marginTop: 8 },

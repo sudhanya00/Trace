@@ -4,7 +4,13 @@
       "PowerShell($w = Get-Command pandoc -ErrorAction SilentlyContinue; if \\($w\\) { $w.Source } else { \"not found\" })",
       "PowerShell(python --version)",
       "PowerShell(python -c \"import docx; print\\('python-docx ok'\\)\")",
-      "Bash(grep -vE \"^\\\\s*\\\\*|/\\\\*\")"
+      "Bash(grep -vE \"^\\\\s*\\\\*|/\\\\*\")",
+      "Bash(grep -n \"^#\\\\{1,3\\\\} \" TRACE_BUILD_SPEC.md)",
+      "Bash(xargs wc -l)",
+      "Bash(npx tsc *)",
+      "Bash(npx supabase *)",
+      "Bash(timeout 300 npx supabase start)",
+      "Bash(tasklist)"
     ]
   }
 }

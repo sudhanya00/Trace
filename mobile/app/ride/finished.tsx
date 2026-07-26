@@ -1,9 +1,9 @@
 import * as ImagePicker from 'expo-image-picker';
+import { showAlert } from '../../src/components/Dialog';
 import * as Sharing from 'expo-sharing';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -15,13 +15,27 @@ import {
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 
+import { CrewContribution } from '../../src/components/CrewContribution';
 import { Odometer } from '../../src/components/Odometer';
 import { PushButton } from '../../src/components/PushButton';
 import { ShareCard, ShareCardData } from '../../src/components/ShareCard';
 import { Field, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
-import { getBike, listBikes, listMyRides, ownTrackSegments, updateRide } from '../../src/lib/db';
-import { localRide, pointsForRide, rideState, setPendingTitle } from '../../src/lib/localdb';
+import {
+  getBike,
+  listBikes,
+  listMyRides,
+  ownTrackSegments,
+  setRideCrew,
+  updateRide,
+} from '../../src/lib/db';
+import {
+  localRide,
+  pointsForRide,
+  rideState,
+  setPendingCrew,
+  setPendingTitle,
+} from '../../src/lib/localdb';
 import { color, font, layout } from '../../src/theme/tokens';
 
 /**
@@ -42,6 +56,7 @@ export default function RideFinished() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { session } = useAuth();
   const [title, setTitle] = useState('');
+  const [crewId, setCrewId] = useState<string | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [segments, setSegments] = useState<[number, number][][]>([]);
   const [bikeName, setBikeName] = useState<string | null>(null);
@@ -125,6 +140,14 @@ export default function RideFinished() {
     }
   };
 
+  const saveCrew = async (id: string | null) => {
+    setCrewId(id);
+    setPendingCrew(ride.id, id);
+    if (ride.sync_state === 'synced') {
+      await setRideCrew(ride.id, id).catch(() => {});
+    }
+  };
+
   const takePhoto = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     const res = perm.granted
@@ -147,7 +170,7 @@ export default function RideFinished() {
         dialogTitle: 'Share your ride',
       });
     } catch (e) {
-      Alert.alert('Could not share', (e as Error).message);
+      showAlert('Could not share', (e as Error).message);
     }
   };
 
@@ -227,6 +250,10 @@ export default function RideFinished() {
           style={{ marginTop: 26 }}
         />
 
+        <View style={{ marginTop: 22 }}>
+          <CrewContribution value={crewId} onChange={saveCrew} distanceKm={distanceKm} />
+        </View>
+
         <Pressable onPress={takePhoto} style={st.photoBox}>
           {photoUri ? (
             <Image source={{ uri: photoUri }} style={st.photo} resizeMode="cover" />
@@ -303,7 +330,7 @@ const st = StyleSheet.create({
     lineHeight: 24,
   },
   gapRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 },
-  gapDash: { width: 18, borderTopWidth: 1.5, borderStyle: 'dashed', borderColor: color.signal, opacity: 0.7 },
+  gapDash: { width: 18, borderTopWidth: 1.5, borderStyle: 'dashed', borderColor: color.traceDim, opacity: 0.7 },
   gapText: { flex: 1, fontFamily: font.body, fontSize: 11, color: color.steel, lineHeight: 15 },
   gapStrong: { color: '#B9C0C3', fontFamily: font.bodyMedium },
   milestones: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 18 },
@@ -311,10 +338,10 @@ const st = StyleSheet.create({
     fontFamily: font.mono,
     fontSize: 8.5,
     letterSpacing: 1.4,
-    color: color.signal,
+    color: color.traceDim,
     borderWidth: 1,
-    borderColor: 'rgba(255,214,10,.3)',
-    backgroundColor: 'rgba(255,214,10,.12)',
+    borderColor: color.hair,
+    backgroundColor: color.slate,
     borderRadius: 3,
     paddingHorizontal: 8,
     paddingVertical: 5,

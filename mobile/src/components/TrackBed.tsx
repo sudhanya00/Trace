@@ -1,17 +1,11 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, View } from 'react-native';
-import Svg, {
-  Circle,
-  Defs,
-  G,
-  Line,
-  LinearGradient as SvgLinearGradient,
-  Path,
-  Polyline,
-  Stop,
-} from 'react-native-svg';
+import Svg, { Circle, G, Line, Path, Polyline } from 'react-native-svg';
 
-import { color } from '../theme/tokens';
+import { accent, color } from '../theme/tokens';
+
+/** §1.3 ambient topography — warm white at ~5%, the quiet single layer. */
+const CONTOUR = 'rgba(245,245,242,0.05)';
 
 /**
  * The record screen's map bed, straight from the reference: terrain contours
@@ -41,46 +35,30 @@ export function TrackBed({ points }: { points: Pt[] }) {
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="xMidYMid slice"
       >
-        <Defs>
-          <SvgLinearGradient id="trk" x1="0" y1="1" x2="1" y2="0">
-            <Stop offset="0" stopColor="#FFD60A" stopOpacity="0.3" />
-            <Stop offset="0.55" stopColor="#FFDE47" stopOpacity="0.8" />
-            <Stop offset="1" stopColor="#FFF1A6" stopOpacity="1" />
-          </SvgLinearGradient>
-        </Defs>
-
-        {/* terrain contours — the bed texture from the reference */}
-        <G stroke="#222829" strokeWidth={1} fill="none" opacity={0.9}>
-          <Path d="M-20 120 C 70 96, 150 150, 230 118 S 360 66, 420 96" />
-          <Path d="M-20 158 C 80 132, 160 188, 240 154 S 366 104, 420 134" />
-          <Path d="M-20 200 C 66 176, 158 228, 236 196 S 358 146, 420 176" />
-          <Path d="M-20 250 C 88 224, 150 276, 244 244 S 352 196, 420 224" />
-          <Path d="M-20 302 C 74 278, 162 326, 238 296 S 360 248, 420 276" />
-          <Path d="M-20 352 C 84 330, 154 376, 246 348 S 350 300, 420 328" />
-          <Path d="M-20 404 C 70 382, 160 426, 236 400 S 358 352, 420 380" />
+        {/* §1.3 — one quiet ambient layer, ≤6% white. Decoration must carry
+            information or go: the busy reference contours are gone. The true
+            last-ride elevation line is deferred until altitude is stored
+            durably (it's dropped with local points at sync). */}
+        <G stroke={CONTOUR} strokeWidth={1} fill="none">
+          <Path d="M-20 210 C 80 186, 160 238, 240 206 S 366 156, 420 186" />
+          <Path d="M-20 300 C 74 276, 162 324, 238 294 S 360 246, 420 274" />
         </G>
-        <Path
-          d="M-20 258 L 58 196 L 118 236 L 186 150 L 250 214 L 318 162 L 410 224"
-          stroke="#2C3335"
-          strokeWidth={1.2}
-          fill="none"
-          opacity={0.8}
-        />
 
-        {/* the ridden track — real points, one polyline per segment */}
-        {segments.map((seg, i) => (
-          <Polyline
-            key={`s${i}`}
-            points={seg.map(([x, y]) => `${x},${y}`).join(' ')}
-            stroke="url(#trk)"
-            strokeWidth={3.4}
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        ))}
+        {/* the ridden track — real points, one polyline per segment, in the
+            trace language: stacked strokes for the glow (§1.1). */}
+        {segments.map((seg, i) => {
+          const points = seg.map(([x, y]) => `${x},${y}`).join(' ');
+          return (
+            <G key={`s${i}`}>
+              <Polyline points={points} stroke={accent.trace} strokeWidth={7} opacity={0.16} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              <Polyline points={points} stroke={accent.trace} strokeWidth={4.4} opacity={0.34} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              <Polyline points={points} stroke={accent.trace} strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            </G>
+          );
+        })}
 
-        {/* gaps: dashed, reduced opacity — visible, never counted */}
+        {/* gaps: dashed and muted — visible, never counted, never trace-bright
+            (§5). The trace-that-wasn't reads as absence, not distance. */}
         {segments.slice(1).map((seg, i) => {
           const prev = segments[i];
           const [x1, y1] = prev[prev.length - 1];
@@ -92,24 +70,25 @@ export function TrackBed({ points }: { points: Pt[] }) {
               y1={y1}
               x2={x2}
               y2={y2}
-              stroke={color.signal}
-              strokeWidth={2.2}
+              stroke={accent.traceDim}
+              strokeWidth={2}
               strokeDasharray="3 7"
               strokeLinecap="round"
-              opacity={0.55}
+              opacity={0.7}
             />
           );
         })}
 
-        {/* current position at the head of the line */}
+        {/* current position at the head of the line — trace, not action:
+            one yellow per screen belongs to the record button. */}
         {segments.length > 0 &&
           (() => {
             const last = segments[segments.length - 1];
             const [x, y] = last[last.length - 1];
             return (
               <>
-                <Circle cx={x} cy={y} r={14} fill={color.signal} opacity={0.14} />
-                <Circle cx={x} cy={y} r={5.5} fill={color.signal} stroke={color.void} strokeWidth={2} />
+                <Circle cx={x} cy={y} r={14} fill={accent.trace} opacity={0.14} />
+                <Circle cx={x} cy={y} r={5.5} fill={accent.trace} stroke={color.void} strokeWidth={2} />
               </>
             );
           })()}

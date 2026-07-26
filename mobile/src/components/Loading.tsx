@@ -1,52 +1,73 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import Svg, { Polyline } from 'react-native-svg';
 
-import { color, font } from '../theme/tokens';
+import { accent, text as textToken } from '../theme/tokens';
+
+// A little mountain-road wiggle. Fixed points drive every size.
+const W = 46;
+const H = 22;
+const POINTS = '3,15 11,7 18,16 26,6 33,15 43,8';
 
 /**
- * The branded loader: three signal dots breathing in sequence. Anything that
- * takes longer than a beat (trace tiles, feeds, maps) shows this instead of
- * a blank screen — waiting should feel intentional.
+ * The loading language: the trace motif, breathing. One motif everywhere
+ * (feeds, routes, maps) reads as coherence where a spinner reads as a stall.
+ *
+ * The squiggle is always drawn; only its brightness pulses. (An earlier
+ * version animated an SVG dash offset to "draw" the line, but if that failed
+ * on a device the loader showed nothing — a loader must never be invisible.)
  */
-export function Loading({ label }: { label?: string }) {
-  const dots = [useRef(new Animated.Value(0.25)).current, useRef(new Animated.Value(0.25)).current, useRef(new Animated.Value(0.25)).current];
+export function TraceLoader({ size = 1 }: { size?: number }) {
+  const pulse = useRef(new Animated.Value(0.35)).current;
 
   useEffect(() => {
-    const loops = dots.map((v, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 160),
-          Animated.timing(v, { toValue: 1, duration: 420, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(v, { toValue: 0.25, duration: 420, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.delay((2 - i) * 160),
-        ])
-      )
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 620, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.35, duration: 620, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
     );
-    loops.forEach((l) => l.start());
-    return () => loops.forEach((l) => l.stop());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  const glow = [
+    { w: 4, o: 0.16 },
+    { w: 2.6, o: 0.34 },
+    { w: 1.6, o: 1 },
+  ];
 
   return (
-    <View style={st.wrap}>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        {dots.map((v, i) => (
-          <Animated.View key={i} style={[st.dot, { opacity: v }]} />
+    <Animated.View style={{ opacity: pulse }}>
+      <Svg width={W * size} height={H * size} viewBox={`0 0 ${W} ${H}`}>
+        {glow.map((g, i) => (
+          <Polyline
+            key={i}
+            points={POINTS}
+            fill="none"
+            stroke={accent.trace}
+            strokeWidth={g.w}
+            opacity={g.o}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         ))}
-      </View>
+      </Svg>
+    </Animated.View>
+  );
+}
+
+/** Full-bleed loading state — the trace motif over a label. */
+export function Loading({ label }: { label?: string }) {
+  return (
+    <View style={st.wrap}>
+      <TraceLoader size={1.4} />
       {label ? <Text style={st.label}>{label}</Text> : null}
     </View>
   );
 }
 
 const st = StyleSheet.create({
-  wrap: { alignItems: 'center', justifyContent: 'center', gap: 14, flex: 1 },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: color.signal,
-    boxShadow: '0 0 12px rgba(255, 214, 10, 0.5)',
-  },
-  label: { fontFamily: font.bodyMedium, fontSize: 12.5, color: color.steel, letterSpacing: 0.3 },
+  wrap: { alignItems: 'center', justifyContent: 'center', gap: 16, flex: 1 },
+  label: { fontFamily: 'Manrope_500Medium', fontSize: 12.5, color: textToken.secondary, letterSpacing: 0.3 },
 });

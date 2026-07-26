@@ -1,6 +1,7 @@
 import { router, useFocusEffect } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useCallback, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PushButton } from '../../src/components/PushButton';
 import { MonoLabel } from '../../src/components/ui';
@@ -26,7 +27,7 @@ export default function PrivacyZones() {
   );
 
   const remove = (z: PrivacyZone) => {
-    Alert.alert(
+    showAlert(
       'Delete this zone?',
       'Tracks through this area become visible on your public rides and routes again.',
       [
@@ -35,7 +36,7 @@ export default function PrivacyZones() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await deletePrivacyZone(z.id).catch((e) => Alert.alert('Could not delete', e.message));
+            await deletePrivacyZone(z.id).catch((e) => showAlert('Could not delete', e.message));
             setZones(await listPrivacyZones().catch(() => zones));
           },
         },

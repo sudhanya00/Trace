@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
 
 import { BikeForm } from '../../src/components/BikeForm';
 import { MonoLabel } from '../../src/components/ui';
@@ -26,7 +27,7 @@ export default function FirstBike() {
       // the garage exists — warn, don't gate.
       router.replace(oemFamily() ? '/oem-whitelist?from=onboarding' : '/(tabs)/explore');
     } catch (e) {
-      Alert.alert('Could not save bike', (e as Error).message);
+      showAlert('Could not save bike', (e as Error).message);
     } finally {
       setBusy(false);
     }

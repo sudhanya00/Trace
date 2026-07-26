@@ -2,18 +2,12 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { activityOf, Post } from '../lib/db';
-import { color, font } from '../theme/tokens';
+import { PostCard } from '../components/PostCard';
+import { Post, postsOf } from '../lib/db';
+import { color, font, layout } from '../theme/tokens';
 
-function ago(iso: string): string {
-  const m = Math.floor((Date.now() - +new Date(iso)) / 60000);
-  if (m < 1) return 'now';
-  if (m < 60) return `${m}m`;
-  if (m < 1440) return `${Math.floor(m / 60)}h`;
-  return `${Math.floor(m / 1440)}d`;
-}
-
-/** A rider's posts — their voice on the platform. */
+/** A rider's posts — their voice on the platform. Tags are gone (2026-07-21),
+ *  so the row leads with what was said, not with how it was filed. */
 export function ActivitySection({
   profileId,
   handle,
@@ -25,10 +19,14 @@ export function ActivitySection({
 }) {
   const [posts, setPosts] = useState<Post[]>([]);
 
+  const load = useCallback(() => {
+    postsOf(profileId).then(setPosts).catch(() => {});
+  }, [profileId]);
+
   useFocusEffect(
     useCallback(() => {
       let alive = true;
-      activityOf(profileId).then((p) => alive && setPosts(p)).catch(() => {});
+      postsOf(profileId).then((p) => alive && setPosts(p)).catch(() => {});
       return () => {
         alive = false;
       };
@@ -47,21 +45,13 @@ export function ActivitySection({
           {own ? 'Nothing said yet. Ask the road a question.' : `@${handle} hasn't posted yet.`}
         </Text>
       ) : (
-        posts.map((p) => (
-          <Pressable key={p.id} onPress={() => router.push(`/post/${p.id}`)}>
-            {({ pressed }) => (
-              <View style={[st.row, pressed && { backgroundColor: color.slate }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                  <Text style={st.tag}>{p.tag.toUpperCase()}</Text>
-                  <Text style={st.when}>{ago(p.created_at)}</Text>
-                </View>
-                <Text style={st.body} numberOfLines={4}>
-                  {p.body}
-                </Text>
-              </View>
-            )}
-          </Pressable>
-        ))
+        // Negative inset: PostCard carries the screen padding itself, and the
+        // profile has already applied it.
+        <View style={{ marginHorizontal: -layout.screenPadding }}>
+          {posts.map((p) => (
+            <PostCard key={p.id} post={p} onChanged={load} />
+          ))}
+        </View>
       )}
     </View>
   );
@@ -72,17 +62,6 @@ const st = StyleSheet.create({
   composeText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
   empty: { fontFamily: font.body, fontSize: 13, color: color.steel, lineHeight: 19 },
   row: { paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: color.hair },
-  tag: {
-    fontFamily: font.mono,
-    fontSize: 7.5,
-    letterSpacing: 1.2,
-    color: color.steel,
-    borderWidth: 1,
-    borderColor: color.hair,
-    borderRadius: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 2.5,
-  },
   when: { fontFamily: font.mono, fontSize: 8.5, color: color.dim },
-  body: { fontFamily: font.body, fontSize: 13.5, color: '#C6CBCE', lineHeight: 19, marginTop: 7 },
+  body: { fontFamily: font.body, fontSize: 14, color: '#C6CBCE', lineHeight: 20 },
 });

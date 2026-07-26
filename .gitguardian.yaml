@@ -1,0 +1,31 @@
+# GitGuardian — two known fixtures, and nothing else.
+#
+# The scan on PR #1 reported "2 secrets uncovered" across 32 commits. Both are
+# the Supabase CLI's local development keys, which appear in the two test files
+# that drive the local stack:
+#
+#   mobile/tests/backend.test.mjs
+#   mobile/tests/verify-geo.mjs
+#
+# They decode to `iss: supabase-demo` and are pointed at http://127.0.0.1:55321.
+# The CLI ships the same two strings to every install on earth; they are printed
+# by `supabase start` and published in Supabase's own docs. They authorise
+# nothing anywhere except a stack running on this machine.
+#
+# Verified when this file was written (2026-07-26): no .env has ever been
+# committed — only mobile/.env.example, whose values are empty — and the full
+# history contains no Google API key, no sb_secret_*, and no JWT issued by
+# anything other than supabase-demo.
+#
+# Ignored BY VALUE, not by path. Silencing the two files wholesale would mean a
+# real credential pasted into a test tomorrow scans clean, and tests are exactly
+# where a real credential gets pasted "just for a minute". These two hashes go
+# quiet; everything else in those files is still scanned.
+version: 2
+
+secret:
+  ignored-matches:
+    - name: Supabase local demo anon key (public CLI fixture, iss=supabase-demo)
+      match: bf1725a8f98bea37e88618702e725ba84bd8acdb2647c5e0ed638bfd685791cf
+    - name: Supabase local demo service_role key (public CLI fixture, iss=supabase-demo)
+      match: 70541e07fd4f900b66e289f5be55c85f9bef1def4924a5b0c518c45ea1688c12

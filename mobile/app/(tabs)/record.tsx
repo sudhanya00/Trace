@@ -1,10 +1,10 @@
 import { router, useFocusEffect } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import * as Location from 'expo-location';
 import * as Device from 'expo-device';
 import { usePostHog } from 'posthog-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   Animated,
   Easing,
   Modal,
@@ -17,22 +17,41 @@ import {
   View,
 } from 'react-native';
 
+const ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+
+import { Feather } from '@expo/vector-icons';
+import { TransformRequestManager } from '@maplibre/maplibre-react-native';
+
 import { Odometer } from '../../src/components/Odometer';
 import { PushButton } from '../../src/components/PushButton';
-import { TrackBed } from '../../src/components/TrackBed';
+import { LocationPicker, PickedPlace } from '../../src/components/LocationPicker';
+import { RecordMap } from '../../src/components/RecordMap';
+import { Sheet } from '../../src/components/Sheet';
 import { MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
-import { Bike, listBikes } from '../../src/lib/db';
+import {
+  announceLiveShare,
+  Bike,
+  Crew,
+  listBikes,
+  listCrews,
+  myCrewIds,
+  myUpcomingRides,
+  traceBounds,
+  UpcomingRide,
+} from '../../src/lib/db';
 import {
   LocalRide,
   pointsForRide,
   recordingRide,
   rideState,
   RideState,
+  setPendingInvite,
 } from '../../src/lib/localdb';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AUTO_PAUSE_MS,
+  cancelRide,
   finalizeInterrupted,
   finishRide,
   isRecordingTaskRunning,
@@ -40,9 +59,12 @@ import {
   resumeRide,
   startRide,
 } from '../../src/lib/recording';
+import { planRoute } from '../../src/lib/geo-api';
+import { supabase } from '../../src/lib/supabase';
+import { success } from '../../src/lib/haptics';
 import { oemFamily } from '../../src/lib/oem';
 import { syncPendingRides } from '../../src/lib/sync';
-import { color, font, layout } from '../../src/theme/tokens';
+import { accent, color, font, layout } from '../../src/theme/tokens';
 
 function fmtElapsed(ms: number): { hm: string; s: string } {
   const t = Math.max(0, Math.floor(ms / 1000));
@@ -74,11 +96,71 @@ export default function Record() {
   // permission only) means the fix usually exists BEFORE the Start tap —
   // the same trick maps apps use. Stops on blur; costs nothing on other tabs.
   const [warmFix, setWarmFix] = useState<{ accuracy: number | null; ts: number } | null>(null);
-  const [liveShare, setLiveShare] = useState(false);
+  // Which crews can see this ride. Empty means nobody, and it starts empty
+  // every ride — the audience is a decision, not a setting.
+  const [shareCrews, setShareCrews] = useState<string[]>([]);
+  const [myCrews, setMyCrews] = useState<Crew[]>([]);
+  const [pickingCrews, setPickingCrews] = useState(false);
+  const [linkedRide, setLinkedRide] = useState<UpcomingRide | null>(null);
+  // Where the rider said they're headed. A line on the map and nothing more —
+  // no turns, no voice. Enough to know you haven't missed the turning.
+  const [destination, setDestination] = useState<PickedPlace | null>(null);
+  const [destinationLine, setDestinationLine] = useState<[number, number][] | null>(null);
+  const [pickingDest, setPickingDest] = useState(false);
+  const [routing, setRouting] = useState(false);
+  const [recentre, setRecentre] = useState(0);
+  // One map, two things it can show. A plain toggle, always in the same
+  // place: the screen behaves identically every time you open it, which is
+  // what lets muscle memory form.
+  const [mapMode, setMapMode] = useState<'ride' | 'traces'>('ride');
+  const [traceBox, setTraceBox] = useState<[number, number, number, number] | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(LIVE_SHARE_KEY).then((v) => setLiveShare(v === '1')).catch(() => {});
+    AsyncStorage.getItem(LIVE_SHARE_KEY)
+      .then((raw) => setShareCrews(raw ? JSON.parse(raw) : []))
+      .catch(() => {});
   }, []);
+
+  // The crews available to share with — only ones the rider is actually in.
+  useEffect(() => {
+    if (!session) return;
+    Promise.all([listCrews(), myCrewIds(session.user.id)])
+      .then(([all, mine]) => setMyCrews(all.filter((c) => mine.has(c.id))))
+      .catch(() => {});
+  }, [session]);
+
+  /** Turning it on announces once per newly-added crew; turning it off is silent. */
+  const applyShareCrews = async (next: string[]) => {
+    const added = next.filter((id) => !shareCrews.includes(id));
+    setShareCrews(next);
+    await AsyncStorage.setItem(LIVE_SHARE_KEY, JSON.stringify(next)).catch(() => {});
+    if (added.length > 0) await announceLiveShare(added).catch(() => {});
+  };
+
+  // Trace tiles are RLS-scoped to the rider, so the tile requests carry the
+  // caller's JWT. Re-applied on focus so a refreshed token wins.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      (async () => {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        if (!token || !alive) return;
+        TransformRequestManager.clearHeaders();
+        for (const [name, value] of [
+          ['apikey', ANON_KEY],
+          ['Authorization', `Bearer ${token}`],
+          ['Accept', 'application/vnd.mapbox-vector-tile'],
+        ]) {
+          TransformRequestManager.addHeader({ match: /rpc\/trace_tiles/, name, value });
+        }
+        traceBounds().then((b) => alive && setTraceBox(b)).catch(() => {});
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [])
+  );
 
   const refresh = useCallback(async () => {
     const ride = recordingRide();
@@ -146,7 +228,7 @@ export default function Record() {
     setExplainerOpen(false);
     const fg = await Location.requestForegroundPermissionsAsync();
     if (!fg.granted) {
-      Alert.alert('No location, no ride', 'TRACE cannot record a ride without location access.');
+      showAlert('No location, no ride', 'TRACE cannot record a ride without location access.');
       return;
     }
     const bg = await Location.requestBackgroundPermissionsAsync();
@@ -158,18 +240,77 @@ export default function Record() {
       );
     }
     try {
-      await startRide(bikeId);
+      const ride = await startRide(bikeId);
       refresh();
+      // If a ride they said they'd be on is starting about now, ask once —
+      // the rider knows which ride they're on far better than a track
+      // comparison afterwards ever would.
+      offerToLink(ride.id);
     } catch (e) {
-      Alert.alert('Could not start', (e as Error).message);
+      showAlert('Could not start', (e as Error).message);
     }
+  };
+
+  /** One prompt, only when there's something plausible to attach to. */
+  const offerToLink = async (rideId: string) => {
+    const planned = await myUpcomingRides().catch(() => [] as UpcomingRide[]);
+    if (planned.length === 0) return;
+
+    const attach = (invite: UpcomingRide) => {
+      setPendingInvite(rideId, invite.id);
+      setLinkedRide(invite);
+    };
+
+    if (planned.length === 1) {
+      const only = planned[0];
+      showAlert(
+        'Riding the planned one?',
+        `“${only.title}”${only.meetup ? ` — ${only.meetup}` : ''}. Link this recording to it, and the crew sees you actually rode it.`,
+        [
+          { text: 'Separate ride', style: 'cancel' },
+          { text: "That's the one", onPress: () => attach(only) },
+        ]
+      );
+      return;
+    }
+    showAlert(
+      'Which ride is this?',
+      'You have more than one planned around now.',
+      [
+        ...planned.slice(0, 3).map((p) => ({ text: p.title, onPress: () => attach(p) })),
+        { text: 'Separate ride', style: 'cancel' as const },
+      ]
+    );
   };
 
   const posthog = usePostHog();
 
+  /** The hold has completed; now say plainly what is about to be lost. */
+  const onCancelHeld = () => {
+    if (phase.kind !== 'recording') return;
+    const s = rideState(phase.ride.id);
+    const km = s ? (s.distance_m / 1000).toFixed(1) : '0.0';
+    showAlert(
+      'Cancel this ride?',
+      `${km} km recorded so far will be deleted and cannot be recovered. To keep it instead, finish the ride.`,
+      [
+        { text: 'Keep recording', style: 'cancel' },
+        {
+          text: 'Delete the ride',
+          style: 'destructive',
+          onPress: async () => {
+            await cancelRide(phase.ride).catch(() => {});
+            refresh();
+          },
+        },
+      ]
+    );
+  };
+
   const onFinish = async () => {
     if (phase.kind !== 'recording') return;
     const s = rideState(phase.ride.id);
+    success(); // the ride is saved — a moment worth feeling (§4)
     await finishRide(phase.ride);
     // §12b: gap metrics + device from day one — tuning without this is guesswork.
     posthog?.capture('ride_finished', {
@@ -188,6 +329,35 @@ export default function Record() {
   const onResume = async () => {
     await resumeRide();
     refresh();
+  };
+
+  /**
+   * Draw a line to somewhere. Uses the last known position as the start, so
+   * it works before a ride begins as well as during one. Failure is quiet and
+   * non-blocking: a missing line must never stand between a rider and the
+   * record button.
+   */
+  const setHeading = async (place: PickedPlace) => {
+    setDestination(place);
+    setRouting(true);
+    try {
+      const from =
+        trackPoints.length > 0
+          ? ([trackPoints[trackPoints.length - 1].lng, trackPoints[trackPoints.length - 1].lat] as [number, number])
+          : await Location.getLastKnownPositionAsync()
+              .then((p) => (p ? ([p.coords.longitude, p.coords.latitude] as [number, number]) : null))
+              .catch(() => null);
+      if (!from) {
+        setRouting(false);
+        return;
+      }
+      const options = await planRoute([from, [place.lng, place.lat]], { alternatives: false });
+      setDestinationLine(options[0]?.coordinates ?? null);
+    } catch {
+      setDestinationLine(null);
+    } finally {
+      setRouting(false);
+    }
   };
 
   const onFinalize = () => {
@@ -213,7 +383,13 @@ export default function Record() {
   return (
     <View style={st.root}>
       {/* map bed: real recorded points behind everything, scrimmed (§8) */}
-      <TrackBed points={trackPoints} />
+      <RecordMap
+        points={trackPoints}
+        destination={destinationLine}
+        recentreKey={recentre}
+        mode={mapMode}
+        traceBounds={traceBox}
+      />
 
       {/* top row: live indicator / GPS status */}
       <View style={st.top}>
@@ -243,7 +419,64 @@ export default function Record() {
         )}
       </View>
 
+      {/* The toggle. Deliberately loud and always in the same place — a
+          control that moves or changes meaning is one nobody learns. */}
+      <View style={st.modeRow}>
+        {(['ride', 'traces'] as const).map((m) => (
+          <Pressable
+            key={m}
+            onPress={() => setMapMode(m)}
+            style={[st.modeBtn, mapMode === m && st.modeBtnOn]}
+          >
+            <Text style={[st.modeText, mapMode === m && { color: color.white }]}>
+              {m === 'ride' ? 'THIS RIDE' : 'MY TRACES'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Where to — at the top, out of the keyboard's way, and translucent so
+          it sits on the map rather than blocking it. */}
+      {phase.kind !== 'interrupted' && (
+        <Pressable onPress={() => setPickingDest(true)} style={st.destRow}>
+          <Feather
+            name={destination ? 'flag' : 'search'}
+            size={15}
+            color={destination ? accent.trace : color.steel}
+          />
+          <Text style={[st.destText, destination && { color: color.white }]} numberOfLines={1}>
+            {routing
+              ? 'Finding the way…'
+              : destination
+                ? destination.label
+                : 'Heading somewhere?'}
+          </Text>
+          {destination ? (
+            <Pressable
+              onPress={() => {
+                setDestination(null);
+                setDestinationLine(null);
+              }}
+              hitSlop={10}
+            >
+              <Feather name="x" size={15} color={color.steel} />
+            </Pressable>
+          ) : null}
+        </Pressable>
+      )}
+
       <View style={{ flex: 1 }} />
+
+      {/* Snap back to the rider after panning the map away. */}
+      {trackPoints.length > 0 && (
+        <Pressable
+          onPress={() => setRecentre((k) => k + 1)}
+          style={st.recentre}
+          hitSlop={8}
+        >
+          <Feather name="crosshair" size={17} color={color.white} />
+        </Pressable>
+      )}
 
       {/* the odometer is the screen */}
       <View style={{ paddingHorizontal: layout.screenPadding }}>
@@ -291,29 +524,20 @@ export default function Record() {
         </View>
       )}
 
-      {/* §12b: recording is in beta — say so, plainly */}
-      {phase.kind === 'idle' && (
-        <View style={st.betaRow}>
-          <Text style={st.betaText}>
-            Recording is in beta — tracks may have gaps. Keep your odometer as backup.
-          </Text>
-        </View>
-      )}
-
+      
       {/* live share opt-in: followers-only, off by default */}
-      {phase.kind === 'idle' && (
-        <Pressable
-          onPress={async () => {
-            const next = !liveShare;
-            setLiveShare(next);
-            await AsyncStorage.setItem(LIVE_SHARE_KEY, next ? '1' : '0').catch(() => {});
-          }}
-          style={st.liveShareRow}
-        >
-          <View style={[st.liveShareDot, liveShare && { backgroundColor: color.signal }]} />
-          <Text style={st.liveShareText}>
-            Share live location with followers while riding {liveShare ? '— on' : '— off'}
+      {/* Who can see you, named. The old copy said "followers" and nobody
+          could tell where they'd see it — now you pick crews, and it shows up
+          in the room where they already talk about riding. */}
+      {phase.kind !== 'interrupted' && (
+        <Pressable onPress={() => setPickingCrews(true)} style={st.liveShareRow}>
+          <View style={[st.liveShareDot, shareCrews.length > 0 && { backgroundColor: accent.trace }]} />
+          <Text style={st.liveShareText} numberOfLines={1}>
+            {shareCrews.length === 0
+              ? 'Share location — off'
+              : `Live to ${shareCrews.length} crew${shareCrews.length === 1 ? '' : 's'}`}
           </Text>
+          <Feather name="chevron-right" size={14} color={color.dim} />
         </Pressable>
       )}
 
@@ -330,13 +554,37 @@ export default function Record() {
                 onPress={() => setBikeId(b.id)}
                 style={[st.bikeChip, b.id === bikeId && st.bikeChipOn]}
               >
-                <Text style={[st.bikeChipText, b.id === bikeId && { color: color.signal }]}>
+                <Text style={[st.bikeChipText, b.id === bikeId && { color: color.white }]}>
                   {b.make.toUpperCase()} {b.model.toUpperCase()}
                 </Text>
               </Pressable>
             ))}
           </ScrollView>
         </View>
+      )}
+
+      {/* What this recording is for, and a way out if it was the wrong tap. */}
+      {linkedRide && phase.kind === 'recording' && (
+        <Pressable
+          onPress={() =>
+            showAlert('Unlink this ride?', `It stops counting as “${linkedRide.title}”.`, [
+              { text: 'Keep it linked', style: 'cancel' },
+              {
+                text: 'Unlink',
+                onPress: () => {
+                  if (phase.kind === 'recording') setPendingInvite(phase.ride.id, null);
+                  setLinkedRide(null);
+                },
+              },
+            ])
+          }
+          style={st.linkedRow}
+        >
+          <Text style={st.linkedText} numberOfLines={1}>
+            Riding <Text style={{ color: color.white }}>{linkedRide.title}</Text>
+          </Text>
+          <Feather name="x" size={13} color={color.steel} />
+        </Pressable>
       )}
 
       {foregroundOnly && phase.kind === 'recording' && (
@@ -371,7 +619,16 @@ export default function Record() {
       {/* control — oversized on purpose: gloves (§8) */}
       <View style={st.ctrl}>
         {phase.kind === 'recording' ? (
-          <PushButton label="Finish ride" onPress={onFinish} height={layout.recordButtonHeight} />
+          <>
+            <PushButton label="Finish ride" onPress={onFinish} height={layout.recordButtonHeight} />
+            {/* Cancelling destroys a track that can't be recovered, so it stays
+                deliberate — but it no longer needs a full bar to do that. A
+                small target plus a confirm that names the distance is two
+                intentional acts, and it gives the map back its space. */}
+            <Pressable onPress={onCancelHeld} style={st.cancelRide} hitSlop={10}>
+              <Text style={st.cancelRideText}>Cancel ride</Text>
+            </Pressable>
+          </>
         ) : phase.kind === 'idle' ? (
           <PushButton
             label={bike ? 'Start ride' : 'Add a bike first'}
@@ -381,6 +638,64 @@ export default function Record() {
           />
         ) : null}
       </View>
+
+      <Sheet
+        visible={pickingCrews}
+        onClose={() => setPickingCrews(false)}
+        label="Live location"
+        title="Who can see you?"
+      >
+        {myCrews.length === 0 ? (
+          <Text style={st.shareNote}>
+            You&apos;re not in any crews yet. Live location goes to crews — join one and this
+            becomes useful.
+          </Text>
+        ) : (
+          <>
+            <Text style={st.shareNote}>
+              They&apos;ll see it in the crew chat while you&apos;re riding, and it stops the moment
+              you finish.
+            </Text>
+            {myCrews.map((c) => {
+              const on = shareCrews.includes(c.id);
+              return (
+                <Pressable
+                  key={c.id}
+                  onPress={() =>
+                    applyShareCrews(
+                      on ? shareCrews.filter((x) => x !== c.id) : [...shareCrews, c.id]
+                    )
+                  }
+                >
+                  {({ pressed }) => (
+                    <View style={[st.shareRow, pressed && { backgroundColor: color.slate2 }]}>
+                      <Text style={[st.shareName, on && { color: color.white }]}>{c.name}</Text>
+                      <View style={[st.shareCheck, on && st.shareCheckOn]} />
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </>
+        )}
+        <PushButton
+          label="Done"
+          variant="secondary"
+          onPress={() => setPickingCrews(false)}
+          style={{ marginTop: 18, marginBottom: 8 }}
+        />
+      </Sheet>
+
+      <LocationPicker
+        visible={pickingDest}
+        onClose={() => setPickingDest(false)}
+        title="Where are you headed?"
+        initial={destination}
+        onPick={(p) => {
+          setPickingDest(false);
+          setHeading(p);
+        }}
+      />
 
       {/* §7 step 2: plain language BEFORE the OS dialog */}
       <Modal visible={explainerOpen} transparent animationType="fade" onRequestClose={() => setExplainerOpen(false)}>
@@ -423,7 +738,7 @@ function LiveIndicator({ label, paused }: { label: string; paused: boolean }) {
     return () => loop.stop();
   }, [paused, opacity]);
 
-  const tint = paused ? color.steel : color.signal;
+  const tint = paused ? color.steel : color.trace;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
       <Animated.View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: tint, opacity }} />
@@ -498,7 +813,7 @@ const st = StyleSheet.create({
     width: 18,
     borderTopWidth: 1.5,
     borderStyle: 'dashed',
-    borderColor: color.signal,
+    borderColor: color.traceDim,
     opacity: 0.7,
   },
   gapText: { fontFamily: font.body, fontSize: 11, color: color.steel, lineHeight: 15 },
@@ -514,9 +829,67 @@ const st = StyleSheet.create({
     paddingVertical: 9,
     marginRight: 8,
   },
-  bikeChipOn: { borderColor: 'rgba(255,214,10,.4)', backgroundColor: 'rgba(255,214,10,.10)' },
+  bikeChipOn: { borderColor: color.disabled, backgroundColor: color.slate2 },
   bikeChipText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1, color: color.steel },
 
+  modeRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginHorizontal: layout.screenPadding,
+    marginTop: 10,
+    padding: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  modeBtn: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 9 },
+  modeBtnOn: { backgroundColor: color.slate2 },
+  modeText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.dim },
+  destRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: layout.screenPadding,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 10,
+    // Translucent: it floats on the map instead of covering it.
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  destText: { flex: 1, fontFamily: font.body, fontSize: 13, color: color.steel },
+  recentre: {
+    alignSelf: 'flex-end',
+    marginRight: layout.screenPadding,
+    marginBottom: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  cancelRide: { alignSelf: 'center', marginTop: 10, padding: 8 },
+  cancelRideText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
+  linkedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: layout.screenPadding,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: color.hair,
+    borderRadius: 10,
+    backgroundColor: color.slate,
+  },
+  linkedText: { flex: 1, fontFamily: font.body, fontSize: 12.5, color: color.steel },
   warnRow: { marginHorizontal: layout.screenPadding, marginTop: 14 },
   warnText: { fontFamily: font.body, fontSize: 11, color: color.amber, lineHeight: 16 },
 
@@ -531,10 +904,28 @@ const st = StyleSheet.create({
   },
   interruptedTitle: { fontFamily: font.bodySemi, fontSize: 14, color: color.amber },
   interruptedBody: { fontFamily: font.body, fontSize: 12, color: color.steel, lineHeight: 17, marginTop: 6 },
-  oemLink: { fontFamily: font.bodyMedium, fontSize: 12, color: color.signal, lineHeight: 17 },
+  oemLink: { fontFamily: font.bodyMedium, fontSize: 12, color: color.amber, lineHeight: 17 },
 
-  betaRow: { marginHorizontal: layout.screenPadding, marginTop: 16 },
-  betaText: { fontFamily: font.body, fontSize: 11, color: color.dim, lineHeight: 16 },
+  shareNote: { fontFamily: font.body, fontSize: 12.5, color: color.steel, lineHeight: 18, marginBottom: 14 },
+  shareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: color.hair,
+  },
+  shareName: { fontFamily: font.bodySemi, fontSize: 15, color: color.steel },
+  shareCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: color.hair,
+    backgroundColor: color.slate2,
+  },
+  shareCheckOn: { backgroundColor: accent.trace, borderColor: accent.trace },
   liveShareRow: {
     flexDirection: 'row',
     alignItems: 'center',

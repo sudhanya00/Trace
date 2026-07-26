@@ -2,9 +2,9 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { MonoLabel } from '../components/ui';
+import { TrackThumb } from '../components/TrackThumb';
 import { useAuth } from '../lib/auth';
-import { Bike, bikeTitle, listBikes, listMyRides, Ride } from '../lib/db';
+import { Bike, bikeTitle, listBikes, listMyRides, Ride, rideThumbs } from '../lib/db';
 import { listLocalRides, LocalRide, rideState } from '../lib/localdb';
 import { syncPendingRides } from '../lib/sync';
 import { color, font } from '../theme/tokens';
@@ -21,18 +21,26 @@ type Row = {
   manual: boolean;
 };
 
-export function RidesSection() {
+export function RidesSection({ profileId }: { profileId?: string } = {}) {
   const { session } = useAuth();
   const [rows, setRows] = useState<Row[]>([]);
   const [bikes, setBikes] = useState<Map<string, Bike>>(new Map());
+  const [thumbs, setThumbs] = useState<Map<string, [number, number][][]>>(new Map());
+
+  const who = profileId ?? session?.user.id;
+  // Another rider's log is whatever the server will show us — no local
+  // buffer, no sync chips, nothing to add by hand. Only your own log is
+  // local-first, because only your own rides are still on this phone.
+  const own = who != null && who === session?.user.id;
 
   useFocusEffect(
     useCallback(() => {
       let alive = true;
       const load = async () => {
-        const local = listLocalRides().filter((r) => r.sync_state !== 'recording');
+        if (!who) return;
+        const local = own ? listLocalRides().filter((r) => r.sync_state !== 'recording') : [];
         const unsynced = local.filter((r) => r.sync_state !== 'synced');
-        const server = session ? await listMyRides(session.user.id).catch(() => []) : [];
+        const server = await listMyRides(who).catch(() => []);
         const unsyncedIds = new Set(unsynced.map((r) => r.id));
         const merged: Row[] = [
           ...unsynced.map((r): Row => {
@@ -64,27 +72,33 @@ export function RidesSection() {
         if (alive) setRows(merged);
       };
       load();
-      syncPendingRides().finally(load);
-      if (session) {
-        listBikes(session.user.id)
+      if (own) syncPendingRides().finally(load);
+      if (who) {
+        listBikes(who)
           .then((bs) => alive && setBikes(new Map(bs.map((b) => [b.id, b]))))
           .catch(() => {});
+        rideThumbs(who).then((t) => alive && setThumbs(t)).catch(() => {});
       }
-      const t = setInterval(load, 4000);
+      // Only your own list changes under you — a visitor's doesn't need a poll.
+      const t = own ? setInterval(load, 4000) : null;
       return () => {
         alive = false;
-        clearInterval(t);
+        if (t) clearInterval(t);
       };
-    }, [session])
+    }, [who, own])
   );
 
   return (
     <View>
-      <Pressable onPress={() => router.push('/ride/manual')} style={st.addManual}>
-        <Text style={st.addManualText}>+ BY HAND</Text>
-      </Pressable>
+      {own && (
+        <Pressable onPress={() => router.push('/ride/manual')} style={st.addManual}>
+          <Text style={st.addManualText}>+ BY HAND</Text>
+        </Pressable>
+      )}
       {rows.length === 0 ? (
-        <Text style={st.empty}>Record your first ride and it lands here.</Text>
+        <Text style={st.empty}>
+          {own ? 'Record your first ride and it lands here.' : 'No rides here yet.'}
+        </Text>
       ) : (
         rows.map((row) => {
           const bike = row.bikeId ? bikes.get(row.bikeId) ?? null : null;
@@ -93,6 +107,7 @@ export function RidesSection() {
             <Pressable key={row.id} onPress={() => router.push(`/ride/${row.id}`)}>
               {({ pressed }) => (
                 <View style={[st.row, pressed && { backgroundColor: color.slate }]}>
+                  <TrackThumb id={row.id} segments={thumbs.get(row.id) ?? []} />
                   <View style={{ flex: 1 }}>
                     <Text style={st.rowTitle}>
                       {row.title ??

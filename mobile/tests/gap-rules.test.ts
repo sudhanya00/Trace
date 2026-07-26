@@ -4,46 +4,87 @@ import { describe, it } from 'node:test';
 import { classifyFix } from '../src/lib/gapRules.ts';
 import { googleMapsDirectionsUrl, toGpx } from '../src/lib/gpx.ts';
 
+/** Shorthand: a fix arriving on a healthy 5s cadence (no blackout). */
+const live = (accuracy: number | null, distanceM: number, spanMs: number) =>
+  classifyFix({ accuracy, distanceM, spanMs, silenceMs: 5000 });
+
 describe('§5 fix classification', () => {
   it('drops fixes with accuracy worse than 50m', () => {
-    assert.deepEqual(classifyFix({ accuracy: 51, distanceM: 400, dtMs: 5000 }), { kind: 'drop' });
+    assert.deepEqual(live(51, 400, 5000), { kind: 'drop' });
   });
 
   it('keeps fixes with unknown accuracy', () => {
-    assert.equal(classifyFix({ accuracy: null, distanceM: 400, dtMs: 5000 }).kind, 'point');
+    assert.equal(live(null, 400, 5000).kind, 'point');
   });
 
   it('skips sub-25m movement (software distance filter)', () => {
-    assert.deepEqual(classifyFix({ accuracy: 10, distanceM: 24, dtMs: 5000 }), { kind: 'skip' });
+    assert.deepEqual(live(10, 24, 5000), { kind: 'skip' });
   });
 
   it('continues the segment for normal riding', () => {
-    assert.deepEqual(classifyFix({ accuracy: 10, distanceM: 120, dtMs: 5000 }), {
-      kind: 'point',
-      gap: false,
-    });
+    assert.deepEqual(live(10, 120, 5000), { kind: 'point', gap: false });
   });
 
   it('a chai stop is not a gap: long silence, same spot, then small move', () => {
     // 20 minutes of nothing, then the rider pulls out of the dhaba 60m away.
-    assert.deepEqual(classifyFix({ accuracy: 10, distanceM: 60, dtMs: 20 * 60_000 }), {
-      kind: 'point',
-      gap: false,
-    });
+    assert.deepEqual(
+      classifyFix({ accuracy: 10, distanceM: 60, spanMs: 20 * 60_000, silenceMs: 20 * 60_000 }),
+      { kind: 'point', gap: false }
+    );
   });
 
   it('long silence ending somewhere else IS a gap', () => {
-    assert.deepEqual(classifyFix({ accuracy: 10, distanceM: 300, dtMs: 4 * 60_000 }), {
-      kind: 'point',
-      gap: true,
-    });
+    assert.deepEqual(
+      classifyFix({ accuracy: 10, distanceM: 300, spanMs: 4 * 60_000, silenceMs: 4 * 60_000 }),
+      { kind: 'point', gap: true }
+    );
   });
 
-  it('a big jump is a gap even when it was fast', () => {
-    assert.deepEqual(classifyFix({ accuracy: 10, distanceM: 900, dtMs: 10_000 }), {
-      kind: 'point',
-      gap: true,
-    });
+  it('a jump no motorcycle could make is a gap', () => {
+    // 900m in 10s is 324 km/h — the position moved, the rider did not.
+    assert.deepEqual(live(10, 900, 10_000), { kind: 'point', gap: true });
+  });
+});
+
+/**
+ * Regression: a real ride on 2026-07-21 reported ~55 min "not counted" and
+ * lost roughly 20 km. These are the exact shapes that produced it.
+ */
+describe('§5 false gaps — the 20 km the old rules threw away', () => {
+  const KMH = (v: number) => v / 3.6; // km/h → m/s
+
+  it('ordinary highway riding is never a gap, however sparse the fixes', () => {
+    // 100 km/h with four fixes lost to the accuracy filter: 695m over 25s.
+    // The old 500m rule called this a dropout and discarded the distance.
+    assert.deepEqual(live(8, KMH(100) * 25, 25_000), { kind: 'point', gap: false });
+
+    // 140 km/h over 20s = 778m. Fast, but a motorcycle absolutely does this.
+    assert.deepEqual(live(8, KMH(140) * 20, 20_000), { kind: 'point', gap: false });
+  });
+
+  it('a noisy patch is not a blackout: dropped fixes still prove the GPS is alive', () => {
+    // 70s of >50m-accuracy fixes, all dropped, then a clean one 1.9 km on.
+    // silenceMs stays small because fixes kept ARRIVING — we just refused
+    // them. The old rules read their own filtering back as signal loss.
+    assert.deepEqual(
+      classifyFix({ accuracy: 9, distanceM: KMH(100) * 70, spanMs: 70_000, silenceMs: 5000 }),
+      { kind: 'point', gap: false }
+    );
+  });
+
+  it('but a true blackout while moving is still a gap', () => {
+    // Nothing arrived at all for five minutes. The road taken is unknown and
+    // must not be drawn, whatever the implied speed works out to.
+    assert.deepEqual(
+      classifyFix({ accuracy: 9, distanceM: 6000, spanMs: 300_000, silenceMs: 300_000 }),
+      { kind: 'point', gap: true }
+    );
+  });
+
+  it('holds the line right at the plausible-speed boundary', () => {
+    // 197 km/h is still a rider; 260 km/h is the position jumping.
+    assert.deepEqual(live(8, KMH(197) * 10, 10_000), { kind: 'point', gap: false });
+    assert.deepEqual(live(8, KMH(260) * 10, 10_000), { kind: 'point', gap: true });
   });
 });
 

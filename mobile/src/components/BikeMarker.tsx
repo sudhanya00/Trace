@@ -2,7 +2,7 @@ import { StyleSheet, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
 import { BikeType } from '../lib/db';
-import { color } from '../theme/tokens';
+import { accent, color } from '../theme/tokens';
 
 /**
  * The rider's puck on the trace map: a geometric side-profile silhouette that
@@ -35,7 +35,7 @@ export function BikeMarker({ type }: { type: BikeType | null }) {
         <Circle cx={27} cy={16} r={4.4} stroke={color.white} strokeWidth={1.8} fill="none" />
         <Path
           d={BODIES[type ?? 'naked']}
-          stroke={color.signal}
+          stroke={accent.trace}
           strokeWidth={1.9}
           fill="none"
           strokeLinecap="round"
@@ -47,15 +47,15 @@ export function BikeMarker({ type }: { type: BikeType | null }) {
 }
 
 const st = StyleSheet.create({
+  // A rider on the map is trace, not action — and no glow (§2).
   puck: {
     width: 44,
     height: 34,
     borderRadius: 17,
     backgroundColor: 'rgba(0,0,0,0.92)',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,214,10,.55)',
+    borderColor: accent.trace,
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0 4px 14px rgba(255, 214, 10, 0.35)',
   },
 });

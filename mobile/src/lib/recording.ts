@@ -6,11 +6,15 @@ import * as TaskManager from 'expo-task-manager';
 
 import { clearLivePosition, upsertLivePosition } from './db';
 import { metersBetween } from './geo';
-import { ldb, LocalRide, recordingRide, rideState } from './localdb';
+import { deleteLocalRide, ldb, LocalRide, recordingRide, rideState } from './localdb';
 import { supabase } from './supabase';
 
-/** AsyncStorage key for the live-share opt-in. OFF unless the rider says so. */
-export const LIVE_SHARE_KEY = 'trace_live_share';
+/**
+ * The crews this ride is being shared with, as a JSON array of ids. Cleared
+ * when a ride finishes: the rider decides again next time rather than
+ * broadcasting to a crew they picked months ago and forgot about.
+ */
+export const LIVE_SHARE_KEY = 'trace_live_share_crews';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -76,15 +80,19 @@ TaskManager.defineTask(RECORDING_TASK, async ({ data, error }) => {
   if (now - lastNotificationUpdate > 30_000) {
     lastNotificationUpdate = now;
     const s = rideState(ride.id);
-    // Live share (opt-in): one small upsert per cycle. Followers-only by RLS;
-    // failure (dead zone) is silence, and staleness reads honestly on their end.
+    // Live share (opt-in): one small upsert per cycle, visible only to the
+    // crews the rider named. A dead zone means silence, and a stale row stops
+    // counting as live after 15 minutes rather than lingering as a ghost.
     if (s) {
+      // The crews the rider chose for THIS ride. No crews, no broadcast —
+      // there is no "share with everyone" any more.
       AsyncStorage.getItem(LIVE_SHARE_KEY)
-        .then(async (on) => {
-          if (on !== '1') return;
+        .then(async (raw) => {
+          const crewIds: string[] = raw ? JSON.parse(raw) : [];
+          if (!Array.isArray(crewIds) || crewIds.length === 0) return;
           const { data } = await supabase.auth.getSession();
           const uid = data.session?.user.id;
-          if (uid) await upsertLivePosition(uid, s.last_lng, s.last_lat, ride.started_at);
+          if (uid) await upsertLivePosition(uid, s.last_lng, s.last_lat, ride.started_at, crewIds);
         })
         .catch(() => {});
     }
@@ -141,35 +149,50 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
         );
         ldb.runSync(
           `INSERT OR REPLACE INTO local_ride_state
-             (ride_id, last_seq, segment_seq, last_lat, last_lng, last_ts, last_altitude, last_accuracy, distance_m, gap_count, gap_duration_s, last_move_ts, pause_prompted, stops_count, stopped_s, elev_gain_m)
-           VALUES (?, 0, 0, ?, ?, ?, ?, ?, 0, 0, 0, ?, 0, 0, 0, 0)`,
-          [ride.id, lat, lng, ts, altitude ?? null, accuracy ?? null, ts]
+             (ride_id, last_seq, segment_seq, last_lat, last_lng, last_ts, last_altitude, last_accuracy, distance_m, gap_count, gap_duration_s, last_move_ts, pause_prompted, stops_count, stopped_s, elev_gain_m, anchor_ts, last_recv_ts)
+           VALUES (?, 0, 0, ?, ?, ?, ?, ?, 0, 0, 0, ?, 0, 0, 0, 0, ?, ?)`,
+          [ride.id, lat, lng, ts, altitude ?? null, accuracy ?? null, ts, ts, ts]
         );
         s = rideState(ride.id)!;
         continue;
       }
 
-      if (ts <= s.last_ts) continue; // out-of-order duplicate
+      if (ts <= s.last_recv_ts) continue; // out-of-order duplicate
 
       const d = metersBetween(s.last_lat, s.last_lng, lat, lng);
-      const dt = ts - s.last_ts;
-      const cls = classifyFix({ accuracy: accuracy ?? null, distanceM: d, dtMs: dt });
+      const cls = classifyFix({
+        accuracy: accuracy ?? null,
+        distanceM: d,
+        // Distance accrued since the anchor, so it is measured over the span
+        // that actually produced it.
+        spanMs: ts - s.anchor_ts,
+        // Silence means nothing arrived — not that we discarded what did.
+        silenceMs: ts - s.last_recv_ts,
+      });
 
-      if (cls.kind === 'drop') continue; // GPS noise (§5)
+      // A fix that arrived and was thrown away still proves the GPS is alive.
+      // Recording that is what stops the accuracy filter inventing dropouts.
+      if (cls.kind === 'drop') {
+        ldb.runSync('UPDATE local_ride_state SET last_recv_ts = ? WHERE ride_id = ?', [ts, ride.id]);
+        s = { ...s, last_recv_ts: ts };
+        continue;
+      }
 
       // Always keep freshness current, even for fixes we don't write —
       // auto-pause detection and GPS status read these.
       if (cls.kind === 'skip') {
         ldb.runSync(
-          'UPDATE local_ride_state SET last_ts = ?, last_altitude = ?, last_accuracy = ? WHERE ride_id = ?',
-          [ts, altitude ?? s.last_altitude, accuracy ?? null, ride.id]
+          'UPDATE local_ride_state SET last_ts = ?, last_recv_ts = ?, last_altitude = ?, last_accuracy = ? WHERE ride_id = ?',
+          [ts, ts, altitude ?? s.last_altitude, accuracy ?? null, ride.id]
         );
-        s = { ...s, last_ts: ts, last_altitude: altitude ?? s.last_altitude };
+        s = { ...s, last_ts: ts, last_recv_ts: ts, last_altitude: altitude ?? s.last_altitude };
         continue;
       }
 
       // §5: never interpolate across a dropout. A dropout ends a segment.
       const isGap = cls.gap;
+      // The unaccounted span, for the honest "not counted" line after the ride.
+      const dt = ts - s.anchor_ts;
 
       const seq = s.last_seq + 1;
       const segment = isGap ? s.segment_seq + 1 : s.segment_seq;
@@ -192,6 +215,7 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
       ldb.runSync(
         `UPDATE local_ride_state SET
            last_seq = ?, segment_seq = ?, last_lat = ?, last_lng = ?, last_ts = ?,
+           anchor_ts = ?, last_recv_ts = ?,
            last_altitude = ?, last_accuracy = ?, distance_m = distance_m + ?,
            gap_count = gap_count + ?, gap_duration_s = gap_duration_s + ?,
            last_move_ts = ?, pause_prompted = 0,
@@ -200,6 +224,7 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
          WHERE ride_id = ?`,
         [
           seq, segment, lat, lng, ts,
+          ts, ts,
           altitude ?? null, accuracy ?? null, addedM,
           isGap ? 1 : 0, isGap ? Math.round(dt / 1000) : 0,
           ts,
@@ -215,6 +240,8 @@ export function ingest(ride: LocalRide, locations: Location.LocationObject[]) {
         last_lat: lat,
         last_lng: lng,
         last_ts: ts,
+        anchor_ts: ts,
+        last_recv_ts: ts,
         last_altitude: altitude ?? s.last_altitude,
         distance_m: s.distance_m + addedM,
         gap_count: s.gap_count + (isGap ? 1 : 0),
@@ -237,7 +264,18 @@ export async function startRide(bikeId: string | null): Promise<LocalRide> {
   ]);
   lastNotificationUpdate = 0;
   await Location.startLocationUpdatesAsync(RECORDING_TASK, LOCATION_OPTIONS);
-  return { id, bike_id: bikeId, started_at: now, ended_at: null, sync_state: 'recording', sync_attempts: 0, last_error: null, pending_title: null };
+  return {
+    id,
+    bike_id: bikeId,
+    started_at: now,
+    ended_at: null,
+    sync_state: 'recording',
+    sync_attempts: 0,
+    last_error: null,
+    pending_title: null,
+    pending_crew_id: null,
+    pending_invite_id: null,
+  };
 }
 
 /** Resume after an interruption (§5 recovery): same ride, recorder restarted.
@@ -262,6 +300,26 @@ export async function finishRide(ride: LocalRide): Promise<void> {
     const uid = data.session?.user.id;
     if (uid) clearLivePosition(uid).catch(() => {});
   });
+  // The audience is chosen per ride, so it never outlives one.
+  AsyncStorage.removeItem(LIVE_SHARE_KEY).catch(() => {});
+}
+
+/**
+ * Throw the ride away. The one place in the app that deliberately loses
+ * track data, so it is deliberately hard to reach: hold, then confirm.
+ * Nothing has synced yet at this point, so nothing has to be un-sent.
+ */
+export async function cancelRide(ride: LocalRide): Promise<void> {
+  if (await isRecordingTaskRunning()) {
+    await Location.stopLocationUpdatesAsync(RECORDING_TASK);
+  }
+  deleteLocalRide(ride.id);
+  supabase.auth.getSession().then(({ data }) => {
+    const uid = data.session?.user.id;
+    if (uid) clearLivePosition(uid).catch(() => {});
+  });
+  // The audience is chosen per ride, so it never outlives one.
+  AsyncStorage.removeItem(LIVE_SHARE_KEY).catch(() => {});
 }
 
 /** Finalize a ride found dead after a kill/reboot — data kept, never lost (§5). */

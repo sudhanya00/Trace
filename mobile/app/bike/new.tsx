@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
+import { showAlert } from '../../src/components/Dialog';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
 
 import { BikeForm } from '../../src/components/BikeForm';
 import { useAuth } from '../../src/lib/auth';
@@ -18,7 +19,7 @@ export default function NewBike() {
       await createBike(session.user.id, input);
       router.back();
     } catch (e) {
-      Alert.alert('Could not save bike', (e as Error).message);
+      showAlert('Could not save bike', (e as Error).message);
       setBusy(false);
     }
   };
