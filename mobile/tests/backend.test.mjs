@@ -2445,3 +2445,100 @@ describe('leaving and forgetting', () => {
     await asha.from('live_positions').delete().eq('profile_id', ashaId);
   });
 });
+
+/**
+ * The delete flow, server side.
+ *
+ * deleteOwnAccount() in src/lib/db.ts cannot be imported here — it pulls in
+ * src/lib/supabase.ts, which needs AsyncStorage and the EXPO_PUBLIC_* env. So
+ * this runs the same calls in the same order rather than the function itself,
+ * and is honest about what that does and does not prove: it exercises the
+ * storage policies, the ordering, and the RPC — every part that can fail on the
+ * server — and none of the rendering, the hold gesture, or the redirect.
+ */
+describe('the delete flow, end to end on the server', () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00]);
+
+  async function newRider(tag) {
+    const client = createClient(URL, ANON);
+    const up = await client.auth.signUp({
+      email: `${tag}-${Date.now()}@test.local`,
+      password: 'password123',
+    });
+    assert.ok(up.data?.user?.id, `signUp failed: ${up.error?.message}`);
+    const id = up.data.user.id;
+    await client.from('profiles').insert({
+      id, handle: `${tag}${Date.now()}`.slice(0, 20), visibility: 'public',
+    });
+    return { client, id };
+  }
+
+  it('clears the rider’s photos, then the account, in that order', async () => {
+    const t = await newRider('delflow');
+
+    // A photo in each bucket, uploaded exactly as the app uploads them.
+    for (const bucket of ['avatars', 'route-photos']) {
+      const { error } = await t.client.storage
+        .from(bucket)
+        .upload(`${t.id}/avatar.jpg`, jpeg, { contentType: 'image/jpeg', upsert: true });
+      assert.equal(error, null, `${bucket} upload failed: ${error?.message}`);
+    }
+
+    // Present to begin with, or the deletion below proves nothing.
+    for (const bucket of ['avatars', 'route-photos']) {
+      const { data } = await t.client.storage.from(bucket).list(t.id);
+      assert.equal(data?.length, 1, `${bucket}: the photo is there first`);
+    }
+
+    // --- the sequence deleteOwnAccount() runs ---
+    for (const bucket of ['avatars', 'route-photos']) {
+      const { data } = await t.client.storage.from(bucket).list(t.id);
+      if (data?.length) {
+        const { error } = await t.client.storage
+          .from(bucket)
+          .remove(data.map((f) => `${t.id}/${f.name}`));
+        assert.equal(error, null, `${bucket} remove failed: ${error?.message}`);
+      }
+    }
+    const { error: rpcErr } = await t.client.rpc('delete_own_account');
+    assert.equal(rpcErr, null, `delete_own_account failed: ${rpcErr?.message}`);
+    // ---
+
+    // Buckets are public-read, so anon is a fair witness that the files are
+    // gone rather than merely invisible to their owner.
+    for (const bucket of ['avatars', 'route-photos']) {
+      const { data } = await anon.storage.from(bucket).list(t.id);
+      assert.equal(data?.length ?? 0, 0, `${bucket}: nothing of theirs is left`);
+    }
+    const { data: profile } = await asha.from('profiles').select('id').eq('id', t.id);
+    assert.equal(profile?.length ?? 0, 0, 'and the account is gone');
+  });
+
+  it('a dead session cannot delete anything else', async () => {
+    const t = await newRider('deadsession');
+    await t.client.rpc('delete_own_account');
+    // The JWT is still in hand and still unexpired — but it names nobody now.
+    const { error } = await t.client
+      .from('bikes')
+      .insert({ profile_id: ashaId, make: 'delflow', model: 'x' });
+    assert.ok(error, 'a token for a deleted account writes nothing');
+  });
+
+  it('the bucket ceiling and type list actually bite', async () => {
+    // The hardening from 20260726000300, exercised rather than assumed.
+    const t = await newRider('bucketlimit');
+    const html = new TextEncoder().encode('<html><script>alert(1)</script></html>');
+    const { error: mime } = await t.client.storage
+      .from('avatars')
+      .upload(`${t.id}/x.html`, html, { contentType: 'text/html', upsert: true });
+    assert.ok(mime, 'an HTML upload into a public bucket is refused');
+
+    const tooBig = new Uint8Array(6 * 1024 * 1024);
+    const { error: size } = await t.client.storage
+      .from('avatars')
+      .upload(`${t.id}/big.jpg`, tooBig, { contentType: 'image/jpeg', upsert: true });
+    assert.ok(size, 'a 6MB upload is refused against the 5MB ceiling');
+
+    await t.client.rpc('delete_own_account');
+  });
+});
