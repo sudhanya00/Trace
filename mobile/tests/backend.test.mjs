@@ -2670,3 +2670,177 @@ describe('rider fingerprint', () => {
     await asha.from('routes').delete().eq('id', route.id);
   });
 });
+
+/**
+ * The discovery ranker.
+ *
+ * No model is involved here, and that is the point: everything that can hurt a
+ * rider is decided in SQL against columns, so it can be tested. These assert
+ * the two tiers separately — refused (not shown at all) and flagged (shown
+ * with a code) — because conflating them is how you end up either hiding roads
+ * nobody asked you to hide, or showing a shut one with a caption.
+ */
+describe('discovery ranker', () => {
+  const JALORI = '00000000-0000-4000-d000-000000000003';
+  const CHANDRATAL = '00000000-0000-4000-d000-000000000004';
+  const RIVERSIDE = '00000000-0000-4000-d000-000000000005';
+  const KUNZUM = '00000000-0000-4000-d000-000000000002';
+
+  const july = '2026-07-15T00:00:00Z';
+  const february = '2026-02-15T00:00:00Z';
+
+  const byId = (rows) => Object.fromEntries(rows.map((r) => [r.route_id, r]));
+  const rank = (rows, id) => rows.findIndex((r) => r.route_id === id);
+
+  it('never shows a road that is closed', async () => {
+    for (const who of [asha, veer]) {
+      const { data, error } = await who.rpc('discover_routes', {
+        p_region: 'Himachal',
+        p_when: july,
+      });
+      assert.equal(error, null, `discover_routes failed: ${error?.message}`);
+      assert.ok(data.length > 0, 'the region is not empty');
+      assert.equal(
+        byId(data)[CHANDRATAL],
+        undefined,
+        'a closed road is refused, not flagged'
+      );
+    }
+  });
+
+  it('refuses a road the rider’s garage cannot do', async () => {
+    // Chandratal is adv_required AND closed, so it cannot separate the two
+    // reasons. This one is adv_required and open.
+    const { data: hard, error } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'public',
+        name: 'rank: adv only, open',
+        region: 'Himachal',
+        distance_km: 12,
+        difficulty: 'hard',
+        max_altitude_m: 2400,
+        road_status: 'open',
+        bike_recommendation: 'adv_required',
+        terrain_tags: ['unpaved'],
+        geom: 'LINESTRING(77.10 32.10, 77.11 32.11)',
+      })
+      .select('id')
+      .single();
+    assert.equal(error, null, `insert failed: ${error?.message}`);
+
+    // asha rides a Himalayan.
+    const mine = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    assert.ok(byId(mine.data)[hard.id], 'an adv rider is shown an adv road');
+
+    // veer rides an Interceptor.
+    const theirs = await veer.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    assert.equal(
+      byId(theirs.data)[hard.id],
+      undefined,
+      'a roadster-only rider is not offered a road that demands an adv'
+    );
+
+    await asha.from('routes').delete().eq('id', hard.id);
+  });
+
+  it('flags a road out of season and sinks it, but does not hide it', async () => {
+    const winter = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: february });
+    const jalori = byId(winter.data)[JALORI];
+    assert.ok(jalori, 'still listed — the rider may be planning ahead');
+    assert.ok(
+      jalori.warnings.includes('out_of_season'),
+      'but flagged for the month they chose'
+    );
+
+    const summer = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    assert.ok(
+      !byId(summer.data)[JALORI].warnings.includes('out_of_season'),
+      'and unflagged in a month it is open'
+    );
+    assert.ok(
+      rank(summer.data, JALORI) < rank(winter.data, JALORI),
+      'the same road ranks higher in the month it can actually be ridden'
+    );
+  });
+
+  it('warns on the attributes that matter, as codes rather than prose', async () => {
+    const { data } = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    const kunzum = byId(data)[KUNZUM];
+    assert.ok(kunzum.warnings.includes('high_pass'), '4590m is a high pass');
+    assert.ok(kunzum.warnings.includes('no_signal'), 'and has no coverage');
+    assert.ok(kunzum.warnings.includes('seasonal_gate'), 'and is gated seasonally');
+
+    // Codes, not sentences — §8 owns the copy, and a sentence written in SQL
+    // would be a sentence outside the design system.
+    for (const w of kunzum.warnings) {
+      assert.match(w, /^[a-z_]+$/, `"${w}" is prose, not a code`);
+    }
+  });
+
+  it('does not warn a rider about everything just because they are new', async () => {
+    // veer's longest day is ~5km. A naive multiplier flags a sealed 21km
+    // riverside road as beyond him — which is the one road he should be shown.
+    const { data } = await veer.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    const riverside = byId(data)[RIVERSIDE];
+    assert.ok(riverside, 'the easy road is listed');
+    assert.deepEqual(riverside.warnings, [], 'and carries no warnings at all');
+
+    assert.ok(
+      rank(data, RIVERSIDE) < rank(data, KUNZUM),
+      'and outranks a 4590m unpaved pass for a rider with no history'
+    );
+  });
+
+  it('ranks a road riders have actually ridden above one nobody has', async () => {
+    const { data } = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    const ridden = data.filter((r) => r.riders_count > 0);
+    assert.ok(ridden.length > 0, 'something in the seed has been ridden');
+    for (const r of ridden) {
+      const unridden = data.filter((u) => u.riders_count === 0);
+      for (const u of unridden) {
+        // Not an absolute rule — a flagged verified road can lose — but the
+        // verified one here carries no warnings, so it must win.
+        if (r.warnings.length === 0) {
+          assert.ok(
+            Number(r.score) >= Number(u.score),
+            `${r.name} (ridden) should not rank below ${u.name} (unridden)`
+          );
+        }
+      }
+    }
+  });
+
+  it('surfaces the provenance a badge is drawn from', async () => {
+    const { data } = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    const jalori = byId(data)[JALORI];
+    assert.equal(jalori.last_condition, 'clear', 'the latest report status');
+    assert.ok(jalori.last_condition_at, 'and when it was filed');
+  });
+
+  it('honours the region filter, and answers without one', async () => {
+    const scoped = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    assert.ok(scoped.data.every((r) => r.region === 'Himachal'), 'scoped to the region asked for');
+
+    const nowhere = await asha.rpc('discover_routes', { p_region: 'Atlantis', p_when: july });
+    assert.equal(nowhere.data.length, 0, 'an unknown region is empty, not an error');
+
+    const anywhere = await asha.rpc('discover_routes', {});
+    assert.ok(anywhere.data.length > 0, 'no region means everywhere');
+  });
+
+  it('tells a signed-out caller nothing', async () => {
+    const { data, error } = await anon.rpc('discover_routes', { p_region: 'Himachal' });
+    assert.ok(error || (data?.length ?? 0) === 0, 'the ranker needs a rider');
+  });
+
+  it('never returns geometry', async () => {
+    const { data } = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    const blob = JSON.stringify(data);
+    for (const leak of ['geom', 'coordinates', 'LINESTRING', 'waypoints']) {
+      assert.ok(!blob.includes(leak), `ranker leaked ${leak}`);
+    }
+  });
+});
