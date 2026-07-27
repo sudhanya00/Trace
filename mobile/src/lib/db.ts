@@ -1534,6 +1534,59 @@ export async function uploadAvatar(userId: string, bytes: ArrayBuffer): Promise<
 }
 
 /**
+ * Ride AI — discovery.
+ *
+ * The warning codes are decided server-side against columns (see
+ * `20260726001000`), never by a model and never here. The client's only job is
+ * to render them; the copy lives in DiscoverCard so the design system owns the
+ * words. A code the client doesn't recognise is dropped rather than shown raw —
+ * a new rule shipping ahead of its copy should say nothing, not leak an
+ * identifier at a rider.
+ */
+export type RouteWarning =
+  | 'high_pass'
+  | 'out_of_season'
+  | 'seasonal_gate'
+  | 'no_signal'
+  | 'above_your_altitude'
+  | 'beyond_your_longest';
+
+export type DiscoveredRoute = {
+  route_id: string;
+  name: string;
+  region: string | null;
+  description: string | null;
+  distance_km: number | null;
+  difficulty: Difficulty | null;
+  terrain_tags: string[] | null;
+  max_altitude_m: number | null;
+  est_duration_minutes: number | null;
+  network_coverage: string | null;
+  road_status: string | null;
+  /** How many riders have actually ridden it. 0 means unverified, not bad. */
+  riders_count: number;
+  last_condition: string | null;
+  last_condition_at: string | null;
+  warnings: RouteWarning[];
+  score: number;
+};
+
+/** Roads worth riding near somewhere, ranked against who the caller is. */
+export async function discoverRoutes(opts?: {
+  region?: string | null;
+  when?: Date | null;
+  limit?: number;
+}): Promise<DiscoveredRoute[]> {
+  const { data, error } = await supabase.rpc('discover_routes', {
+    p_region: opts?.region ?? null,
+    p_when: opts?.when ? opts.when.toISOString() : null,
+    p_limit: opts?.limit ?? 20,
+  });
+  if (error) throw error;
+  return (data ?? []) as DiscoveredRoute[];
+}
+
+/**
  * Delete the rider's account, and everything hanging off it.
  *
  * Order matters and only runs one way. Storage first, because buckets are not

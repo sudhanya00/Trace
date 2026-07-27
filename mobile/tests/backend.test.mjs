@@ -2844,3 +2844,64 @@ describe('discovery ranker', () => {
     }
   });
 });
+
+/**
+ * The contract between discover_routes() and the client type.
+ *
+ * TypeScript checks that DiscoverCard reads fields DiscoveredRoute declares.
+ * Nothing checks that DiscoveredRoute matches what the function actually
+ * returns — rename a column in SQL and the app reads undefined at runtime with
+ * a clean typecheck. This is that check.
+ */
+describe('discover_routes shape', () => {
+  it('returns exactly the columns the client declares', async () => {
+    const { data } = await asha.rpc('discover_routes', {
+      p_region: 'Himachal',
+      p_when: '2026-07-15T00:00:00Z',
+    });
+    assert.ok(data.length > 0, 'something to inspect');
+
+    assert.deepEqual(Object.keys(data[0]).sort(), [
+      'description',
+      'difficulty',
+      'distance_km',
+      'est_duration_minutes',
+      'last_condition',
+      'last_condition_at',
+      'max_altitude_m',
+      'name',
+      'network_coverage',
+      'region',
+      'riders_count',
+      'road_status',
+      'route_id',
+      'score',
+      'terrain_tags',
+      'warnings',
+    ]);
+  });
+
+  it('only raises warning codes the client has copy for', async () => {
+    // The client drops unknown codes rather than showing an identifier to a
+    // rider, so a new rule shipping ahead of its copy fails silently rather
+    // than loudly. This is the loud half.
+    const known = [
+      'high_pass',
+      'out_of_season',
+      'seasonal_gate',
+      'no_signal',
+      'above_your_altitude',
+      'beyond_your_longest',
+    ];
+    for (const when of ['2026-02-15T00:00:00Z', '2026-07-15T00:00:00Z']) {
+      for (const who of [asha, veer]) {
+        const { data } = await who.rpc('discover_routes', { p_region: 'Himachal', p_when: when });
+        for (const r of data) {
+          for (const w of r.warnings) {
+            assert.ok(known.includes(w), `${w} has no copy in DiscoverCard`);
+          }
+        }
+      }
+    }
+  });
+});
