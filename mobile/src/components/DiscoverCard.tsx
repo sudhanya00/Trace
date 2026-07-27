@@ -119,6 +119,28 @@ export function DiscoverCard({ route }: { route: DiscoveredRoute }) {
               ))}
             </View>
           )}
+
+          {/*
+            The tap that turns a suggestion into something real, and the whole
+            reason discovery is worth building: a road that gets planned gets
+            ridden, and a road that gets ridden comes back as a route with a
+            condition report on it. The next rider who asks about this place
+            sees a badge where this card had none.
+
+            Deliberately quiet — a mono link, not a filled button. §8 keeps the
+            accent for the one primary action on a screen, and a list of eight
+            cards would otherwise be eight of them.
+          */}
+          <Pressable
+            onPress={() =>
+              router.push({ pathname: '/invite/new', params: { routeId: route.route_id } })
+            }
+            hitSlop={8}
+            style={st.plan}
+          >
+            <Text style={st.planText}>PLAN THIS RIDE</Text>
+            <Feather name="arrow-right" size={12} color={color.steel} />
+          </Pressable>
         </Card>
       )}
     </Pressable>
@@ -162,4 +184,13 @@ const st = StyleSheet.create({
     opacity: 0.8,
   },
   warnText: { flex: 1, fontFamily: font.body, fontSize: 11.5, color: status.warning },
+  plan: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    marginTop: 14,
+    paddingVertical: 4,
+  },
+  planText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: color.steel },
 });

@@ -2905,3 +2905,94 @@ describe('discover_routes shape', () => {
     }
   });
 });
+
+/**
+ * The handoff: suggestion → planned ride.
+ *
+ * This is the front half of the flywheel, and it only works if a rider can
+ * plan a ride on a road SOMEBODY ELSE shared. The discover list surfaces
+ * asha's routes to veer; the tap has to survive RLS on both the read (to
+ * pre-select it) and the write (to point an invite at it).
+ */
+describe('planning a discovered ride', () => {
+  const RIVERSIDE = '00000000-0000-4000-d000-000000000005';
+
+  it('a stranger can load the road the list offered them', async () => {
+    // invite/new fetches the route to pre-select it, rather than finding it in
+    // the picker — the picker only has your own routes and curated ones, and a
+    // discovered road is neither.
+    const { data, error } = await veer
+      .from('routes')
+      .select('id, name, region, difficulty')
+      .eq('id', RIVERSIDE)
+      .maybeSingle();
+    assert.equal(error, null, `stranger could not load the route: ${error?.message}`);
+    assert.ok(data, 'the road the discover list just offered is readable');
+    assert.equal(data.name, 'Manali–Naggar riverside');
+  });
+
+  it('and plan a ride on it, on somebody else’s road', async () => {
+    const { data: invite, error } = await veer
+      .from('ride_invites')
+      .insert({
+        created_by: veerId,
+        route_id: RIVERSIDE,
+        title: 'handoff: Sunday on the riverside',
+        starts_at: new Date(Date.now() + 3 * 864e5).toISOString(),
+      })
+      .select('id, route_id, created_by')
+      .single();
+    assert.equal(error, null, `could not plan the ride: ${error?.message}`);
+    assert.equal(invite.route_id, RIVERSIDE, 'pointing at the road that was suggested');
+    assert.equal(invite.created_by, veerId, 'and owned by the rider who planned it');
+
+    // It lands on the public board like any other planned ride — nothing about
+    // arriving via discovery makes it a different kind of object.
+    const board = await veer.rpc('invite_list', { p_crew_id: null });
+    assert.ok(
+      board.data.some((i) => i.id === invite.id),
+      'a discovered ride is just a ride'
+    );
+
+    await veer.from('ride_invites').delete().eq('id', invite.id);
+  });
+
+  it('the ride ridden from it counts as riding that road', async () => {
+    // Closing the loop: rider_profile counts a route as ridden when a ride
+    // points at the invite that points at the route. That is what turns an
+    // unverified suggestion into a badge for whoever asks next.
+    const { data: invite } = await veer
+      .from('ride_invites')
+      .insert({
+        created_by: veerId,
+        route_id: RIVERSIDE,
+        title: 'handoff: rode it',
+        starts_at: new Date(Date.now() + 864e5).toISOString(),
+      })
+      .select('id')
+      .single();
+
+    const before = (await veer.rpc('rider_profile')).data[0].routes_ridden;
+
+    const rideId = crypto.randomUUID();
+    await veer.from('rides').insert({
+      id: rideId,
+      profile_id: veerId,
+      planned_ride_id: invite.id,
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      title: 'handoff: the ride',
+    });
+
+    const after = (await veer.rpc('rider_profile')).data[0].routes_ridden;
+    assert.equal(after, before + 1, 'the road now counts as one he has ridden');
+
+    // And the provenance the next rider sees has moved.
+    const seen = await asha.rpc('discover_routes', { p_region: 'Himachal' });
+    const row = seen.data.find((r) => r.route_id === RIVERSIDE);
+    assert.ok(row.riders_count >= 1, 'the card that had no badge now has one');
+
+    await veer.from('rides').delete().eq('id', rideId);
+    await veer.from('ride_invites').delete().eq('id', invite.id);
+  });
+});
