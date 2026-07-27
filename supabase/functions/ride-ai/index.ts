@@ -26,7 +26,10 @@
 
 import { GoogleGenAI, Type } from 'npm:@google/genai@^2.13.0';
 
+import { forecastFor, geocodeOne } from '../_shared/forecast.ts';
+
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+const GOOGLE_MAPS_KEY = Deno.env.get('GOOGLE_MAPS_KEY');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY');
 
@@ -151,6 +154,25 @@ const FUNCTIONS = [
       'What this rider has actually ridden: longest day, highest altitude reached, surfaces, bikes in the garage, months they ride. Call this before suggesting anything demanding, so a recommendation matches what they have done rather than what they might claim. Takes no arguments — it only ever describes the person you are talking to.',
     parameters: { type: Type.OBJECT, properties: {}, required: [] },
   },
+  {
+    name: 'forecast',
+    description:
+      'The weather for one place on one day, up to ten days ahead. Call this when the rider has said which day they are riding and the answer would change with the weather — a high pass in the rain is a different proposition. Returns null beyond ten days, which means nobody knows yet; say that rather than guessing.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        place: {
+          type: Type.STRING,
+          description: 'Town, city or region to get the weather for, e.g. "Manali".',
+        },
+        date: {
+          type: Type.STRING,
+          description: 'ISO 8601 date the rider is planning for, e.g. "2026-08-02".',
+        },
+      },
+      required: ['place', 'date'],
+    },
+  },
 ];
 
 /**
@@ -175,6 +197,9 @@ You do not draw lines on maps. You name roads; the app owns geometry. Never prod
 
 NEVER TALK ABOUT SPEED
 No pace, no lap times, no "you could do it in two hours if you push". Riders here measure distance covered and roads explored. If a rider asks how fast a road can be ridden, answer in terms of how long it takes at a relaxed pace, and don't encourage otherwise.
+
+WEATHER
+Only for the day the rider is actually planning for, never for today. The forecast reaches ten days; past that it returns nothing, and "nobody knows yet" is the honest answer — never substitute a seasonal average or what it is doing now. Weather changes the advice rather than replacing it: a gravel pass at 4,000 m in the rain is a different proposition from the same pass dry, and worth saying so.
 
 WARNINGS ARE NOT YOURS TO SOFTEN
 Tool results carry warning codes decided by the app against real columns: high passes, seasonal closures, no signal, roads harder or higher than anything this rider has finished. Repeat them plainly. Never reassure a rider past one, never omit one because it complicates a nice suggestion, and never invent one that wasn't returned.
@@ -247,18 +272,30 @@ Deno.serve(async (req) => {
       for (const call of calls) {
         let result: unknown;
         try {
-          result =
-            call.name === 'search_roads'
-              ? await rpc(
-                  'discover_routes',
-                  {
-                    p_region: (call.args as { region?: string })?.region ?? null,
-                    p_when: (call.args as { when?: string })?.when ?? null,
-                    p_limit: 12,
-                  },
-                  auth!
-                )
-              : await rpc('rider_profile', {}, auth!);
+          if (call.name === 'search_roads') {
+            result = await rpc(
+              'discover_routes',
+              {
+                p_region: (call.args as { region?: string })?.region ?? null,
+                p_when: (call.args as { when?: string })?.when ?? null,
+                p_limit: 12,
+              },
+              auth!
+            );
+          } else if (call.name === 'forecast') {
+            if (!GOOGLE_MAPS_KEY) throw new Error('GOOGLE_MAPS_KEY is not set');
+            const a = call.args as { place?: string; date?: string };
+            const when = a?.date ? new Date(a.date) : null;
+            const at = a?.place ? await geocodeOne(a.place, GOOGLE_MAPS_KEY) : null;
+            // null all the way down is a real answer: no such place, or past
+            // the ten-day horizon. The system prompt tells it to say so.
+            result =
+              at && when && !Number.isNaN(+when)
+                ? await forecastFor(at.lat, at.lng, when, GOOGLE_MAPS_KEY)
+                : null;
+          } else {
+            result = await rpc('rider_profile', {}, auth!);
+          }
           if (call.name === 'search_roads' && Array.isArray(result)) {
             for (const r of result as { route_id?: string }[]) {
               if (r?.route_id) seen.set(r.route_id, r);
