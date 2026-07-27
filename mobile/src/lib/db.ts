@@ -1587,6 +1587,39 @@ export async function discoverRoutes(opts?: {
 }
 
 /**
+ * Ride AI — the conversation.
+ *
+ * `contents` is Gemini's own turn shape, kept opaque here on purpose: the
+ * client stores what the function hands back and returns it next turn, without
+ * knowing what a `functionCall` part is. That keeps the provider's vocabulary
+ * inside the edge function, where swapping it is one file.
+ *
+ * `routes` is every road the model actually looked up, so the UI can render
+ * the real cards — badges and warnings drawn from data rather than from the
+ * model's prose.
+ */
+export type RideAiTurn = { role: 'user' | 'model'; parts: unknown[] };
+
+export type RideAiReply = {
+  reply: string;
+  contents: RideAiTurn[];
+  routes: DiscoveredRoute[];
+};
+
+export async function askRideAI(contents: RideAiTurn[]): Promise<RideAiReply> {
+  const { data, error } = await supabase.functions.invoke('ride-ai', {
+    body: { contents },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return {
+    reply: data?.reply ?? '',
+    contents: data?.contents ?? contents,
+    routes: data?.routes ?? [],
+  };
+}
+
+/**
  * Delete the rider's account, and everything hanging off it.
  *
  * Order matters and only runs one way. Storage first, because buckets are not

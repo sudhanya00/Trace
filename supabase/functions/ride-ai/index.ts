@@ -210,6 +210,15 @@ Deno.serve(async (req) => {
       tools: [{ functionDeclarations: FUNCTIONS }],
     };
 
+    // Every road the model actually looked up this turn, keyed by id.
+    //
+    // These go back to the client so the UI can render the real cards —
+    // provenance badge, warnings and all — under the reply. It matters that
+    // the app draws those and not the model's prose: the system prompt tells
+    // it not to soften a warning, but an instruction is not an enforcement.
+    // Rendering from the data means a warning survives the model omitting it.
+    const seen = new Map<string, unknown>();
+
     // generateContent is stateless, so the whole conversation goes up each
     // round. Bounded at six rounds: the model has two read-only tools and any
     // honest answer needs one or two calls, so a seventh means it is looping.
@@ -222,7 +231,11 @@ Deno.serve(async (req) => {
 
       const calls = response.functionCalls ?? [];
       if (calls.length === 0) {
-        return json({ reply: response.text ?? '', contents: history });
+        return json({
+          reply: response.text ?? '',
+          contents: history,
+          routes: [...seen.values()],
+        });
       }
 
       // Append the model's turn before the results, or the ids have nothing to
@@ -246,6 +259,11 @@ Deno.serve(async (req) => {
                   auth!
                 )
               : await rpc('rider_profile', {}, auth!);
+          if (call.name === 'search_roads' && Array.isArray(result)) {
+            for (const r of result as { route_id?: string }[]) {
+              if (r?.route_id) seen.set(r.route_id, r);
+            }
+          }
         } catch (e) {
           // Hand the failure back rather than dropping it — a missing response
           // for a call id is rejected outright, and the model can say "I
