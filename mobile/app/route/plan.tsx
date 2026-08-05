@@ -1,7 +1,7 @@
 import { Camera, GeoJSONSource, Layer, Map as MapLibreMap } from '@maplibre/maplibre-react-native';
 import { showAlert } from '../../src/components/Dialog';
 import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,6 +20,7 @@ import { PushButton } from '../../src/components/PushButton';
 import { ChipSelect, Field, MonoLabel } from '../../src/components/ui';
 import { useAuth } from '../../src/lib/auth';
 import { createPlannedRoute, Difficulty, DIFFICULTY } from '../../src/lib/db';
+import { HANDOFF, handOff } from '../../src/lib/handoff';
 import { planRoute, RouteOption } from '../../src/lib/geo-api';
 import { accent, color, font, layout, surface } from '../../src/theme/tokens';
 
@@ -43,6 +44,7 @@ type Stop = PickedPlace;
  * The line is redrawn from them whenever it's needed.
  */
 export default function PlanRoute() {
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { session } = useAuth();
   const [stops, setStops] = useState<(Stop | null)[]>([null, null]); // start, end
   const [picking, setPicking] = useState<number | null>(null);
@@ -118,7 +120,18 @@ export default function PlanRoute() {
         distance_km: active.distance_km,
         crew_id: null,
       });
-      router.replace(`/route/${route.id}`);
+
+      // Where the rider came from decides where they go. Arriving here from the
+      // ride form means this road was a detour inside planning a ride, not the
+      // errand itself — so hand it back and return to the form they left, with
+      // everything they had already typed still in it. Anywhere else, the route
+      // IS the errand and its own screen is the right destination.
+      if (returnTo === 'ride') {
+        handOff(HANDOFF.plannedRoute, route);
+        router.back();
+      } else {
+        router.replace(`/route/${route.id}`);
+      }
     } catch (e) {
       showAlert('Could not save the route', (e as Error).message);
       setSaving(false);

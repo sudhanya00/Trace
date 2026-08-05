@@ -25,10 +25,11 @@ import {
   ConditionReport,
   deleteRouteComment,
   flagComment,
+  deleteRoute,
   getRoute,
   Profile,
-  publicRouteSegments,
   Route,
+  routeLine,
   routeConditions,
   routeThread,
   ThreadComment,
@@ -66,6 +67,7 @@ export default function RouteDetail() {
   const [comment, setComment] = useState('');
   const [conditionNote, setConditionNote] = useState('');
   const [reporting, setReporting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadTalk = useCallback(() => {
     if (!id) return;
@@ -80,7 +82,13 @@ export default function RouteDetail() {
       const r = await getRoute(id).catch(() => null);
       if (!r || !alive) return;
       setRoute(r);
-      publicRouteSegments(r.id).then((s) => alive && setSegments(s)).catch(() => {});
+      // routeLine, not publicRouteSegments. A PLANNED route stores its
+      // waypoints and no geometry — we never keep Google's line — so reading
+      // stored geom alone hands back nothing, the map draws nothing, and both
+      // the GPX export and the Maps hand-off sit permanently disabled. The
+      // follow screen already went through routeLine for exactly this reason;
+      // this screen was the one that didn't.
+      routeLine(r.id).then((s) => alive && setSegments(s)).catch(() => {});
       supabase
         .from('profiles')
         .select('*')
@@ -161,6 +169,31 @@ export default function RouteDetail() {
     } catch (e) {
       showAlert('Could not export', (e as Error).message);
     }
+  };
+
+  const confirmDelete = () => {
+    if (!route) return;
+    showAlert(
+      `Delete ${route.name}?`,
+      'It stops appearing anywhere — for you and for everyone else. Rides you have already recorded on this road are untouched.',
+      [
+        { text: 'Keep it', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await deleteRoute(route.id);
+              router.back();
+            } catch (e) {
+              setDeleting(false);
+              showAlert('Could not delete', (e as Error).message);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const openGoogleMaps = () => {
@@ -297,6 +330,14 @@ export default function RouteDetail() {
         </Pressable>
       </View>
 
+      {/* Only the owner's, and kept away from the rest of the actions — this
+          is the one control on the screen that cannot be undone. */}
+      {session?.user.id === route.profile_id && (
+        <Pressable onPress={confirmDelete} style={st.delete} disabled={deleting}>
+          <Text style={st.deleteText}>{deleting ? 'Deleting…' : 'Delete this route'}</Text>
+        </Pressable>
+      )}
+
       <Pressable onPress={() => router.back()} style={st.back}>
         <Text style={st.backText}>Back</Text>
       </Pressable>
@@ -378,6 +419,8 @@ const st = StyleSheet.create({
     paddingVertical: 13,
   },
   postBtnText: { fontFamily: font.mono, fontSize: 9, letterSpacing: 1.4, color: '#F2F7FF' },
-  back: { alignSelf: 'center', marginTop: 14, padding: 8 },
+  delete: { alignSelf: 'center', marginTop: 30, padding: 10 },
+  deleteText: { fontFamily: font.bodyMedium, fontSize: 13, color: '#E05B4C' },
+  back: { alignSelf: 'center', marginTop: 6, padding: 8 },
   backText: { fontFamily: font.bodyMedium, fontSize: 13, color: color.steel },
 });
