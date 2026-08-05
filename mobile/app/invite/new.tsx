@@ -27,6 +27,7 @@ import {
   Difficulty,
   DIFFICULTY,
   Experience,
+  getRoute,
   listCrews,
   myCrewIds,
   pickableRoutes,
@@ -48,7 +49,10 @@ const EXP_CHOICES: (Experience | 'any')[] = ['any', 'beginner', 'intermediate', 
 /** Plan a ride: when, where, and who it suits — the last of which is what
  *  stops a first-week rider turning up to a 300km mountain run (item 7). */
 export default function NewInvite() {
-  const { crewId: presetCrew } = useLocalSearchParams<{ crewId?: string }>();
+  const { crewId: presetCrew, routeId: presetRoute } = useLocalSearchParams<{
+    crewId?: string;
+    routeId?: string;
+  }>();
   const { session, profile } = useAuth();
   const [myCrews, setMyCrews] = useState<Crew[]>([]);
   const [scope, setScope] = useState<string | null>(presetCrew ?? null); // null = public board
@@ -92,6 +96,30 @@ export default function NewInvite() {
     setPickingRoute(false);
     if (!title.trim()) setTitle(r.name);
   };
+
+  /**
+   * Arriving from Ride AI or the discover list with the road already chosen.
+   *
+   * Fetched rather than looked up in `routes`: the picker only offers the
+   * rider's own routes and the curated ones, and a discovered road is usually
+   * neither — it belongs to whichever rider shared it. Everything else on this
+   * screen stays empty and editable, because a suggestion is a starting point,
+   * not a filled-in form.
+   */
+  useEffect(() => {
+    if (!presetRoute) return;
+    let alive = true;
+    getRoute(presetRoute)
+      .then((r) => {
+        if (!alive || !r) return;
+        setRoute(r);
+        setTitle((t) => (t.trim() ? t : r.name));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [presetRoute]);
 
   // The picker cannot produce a past time, so this is only guarding against a
   // sheet left open across the moment the ride was due.

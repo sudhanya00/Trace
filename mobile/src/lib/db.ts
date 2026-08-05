@@ -1533,6 +1533,124 @@ export async function uploadAvatar(userId: string, bytes: ArrayBuffer): Promise<
   return `${url}?v=${Date.now()}`;
 }
 
+/**
+ * Ride AI — discovery.
+ *
+ * The warning codes are decided server-side against columns (see
+ * `20260726001000`), never by a model and never here. The client's only job is
+ * to render them; the copy lives in DiscoverCard so the design system owns the
+ * words. A code the client doesn't recognise is dropped rather than shown raw —
+ * a new rule shipping ahead of its copy should say nothing, not leak an
+ * identifier at a rider.
+ */
+export type RouteWarning =
+  | 'high_pass'
+  | 'out_of_season'
+  | 'seasonal_gate'
+  | 'no_signal'
+  | 'above_your_altitude'
+  | 'beyond_your_longest';
+
+export type DiscoveredRoute = {
+  route_id: string;
+  name: string;
+  region: string | null;
+  description: string | null;
+  distance_km: number | null;
+  difficulty: Difficulty | null;
+  terrain_tags: string[] | null;
+  max_altitude_m: number | null;
+  est_duration_minutes: number | null;
+  network_coverage: string | null;
+  road_status: string | null;
+  /** How many riders have actually ridden it. 0 means unverified, not bad. */
+  riders_count: number;
+  last_condition: string | null;
+  last_condition_at: string | null;
+  warnings: RouteWarning[];
+  score: number;
+};
+
+/** Roads worth riding near somewhere, ranked against who the caller is. */
+export async function discoverRoutes(opts?: {
+  region?: string | null;
+  when?: Date | null;
+  limit?: number;
+}): Promise<DiscoveredRoute[]> {
+  const { data, error } = await supabase.rpc('discover_routes', {
+    p_region: opts?.region ?? null,
+    p_when: opts?.when ? opts.when.toISOString() : null,
+    p_limit: opts?.limit ?? 20,
+  });
+  if (error) throw error;
+  return (data ?? []) as DiscoveredRoute[];
+}
+
+/**
+ * Ride AI — the conversation.
+ *
+ * `contents` is Gemini's own turn shape, kept opaque here on purpose: the
+ * client stores what the function hands back and returns it next turn, without
+ * knowing what a `functionCall` part is. That keeps the provider's vocabulary
+ * inside the edge function, where swapping it is one file.
+ *
+ * `routes` is every road the model actually looked up, so the UI can render
+ * the real cards — badges and warnings drawn from data rather than from the
+ * model's prose.
+ */
+export type RideAiTurn = { role: 'user' | 'model'; parts: unknown[] };
+
+export type RideAiReply = {
+  reply: string;
+  contents: RideAiTurn[];
+  routes: DiscoveredRoute[];
+};
+
+export async function askRideAI(contents: RideAiTurn[]): Promise<RideAiReply> {
+  const { data, error } = await supabase.functions.invoke('ride-ai', {
+    body: { contents },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return {
+    reply: data?.reply ?? '',
+    contents: data?.contents ?? contents,
+    routes: data?.routes ?? [],
+  };
+}
+
+/**
+ * Delete the rider's account, and everything hanging off it.
+ *
+ * Order matters and only runs one way. Storage first, because buckets are not
+ * tables and nothing cascades into them — the rider's own delete policy is
+ * scoped to their folder, so this is the last moment anyone can clear it. The
+ * database goes last: `delete_own_account` removes the auth row, every table
+ * cascades from it, and the session it was called with stops existing.
+ *
+ * A failure to clear a photo does not stop the deletion. Leaving a rider
+ * unable to delete their account because a bucket listing timed out would be
+ * the worse outcome, and an orphaned JPEG is not what they asked us to forget.
+ */
+export async function deleteOwnAccount(userId: string): Promise<void> {
+  for (const bucket of ['avatars', 'route-photos'] as const) {
+    try {
+      const { data } = await supabase.storage.from(bucket).list(userId);
+      if (data?.length) {
+        await supabase.storage.from(bucket).remove(data.map((f) => `${userId}/${f.name}`));
+      }
+    } catch {
+      // see above — never block the deletion on a file
+    }
+  }
+
+  const { error } = await supabase.rpc('delete_own_account');
+  if (error) throw error;
+
+  // The account is gone; the local session is now a key to nothing.
+  await supabase.auth.signOut().catch(() => {});
+}
+
 /** §12b: one-tap report — the feedback loop that fixes GPS. */
 export async function submitRecordingReport(
   userId: string,

@@ -35,11 +35,14 @@ insert into profiles (id, handle, display_name, visibility, home_region) values
   ('00000000-0000-4000-a000-000000000001', 'asha', 'Asha', 'public', 'Himachal'),
   ('00000000-0000-4000-a000-000000000002', 'veer', 'Veer', 'private', 'J&K');
 
-insert into bikes (id, profile_id, make, model, year, current_odometer_km) values
+-- `type` matters: it is a hard filter in the discovery ranker (a road marked
+-- adv_required is not shown to someone whose only bike is a roadster), so a
+-- seed without it ranks against nulls and proves nothing.
+insert into bikes (id, profile_id, make, model, year, type, current_odometer_km) values
   ('00000000-0000-4000-b000-000000000001', '00000000-0000-4000-a000-000000000001',
-   'Royal Enfield', 'Himalayan 450', 2024, 18442),
+   'Royal Enfield', 'Himalayan 450', 2024, 'adv', 18442),
   ('00000000-0000-4000-b000-000000000002', '00000000-0000-4000-a000-000000000002',
-   'Royal Enfield', 'Interceptor 650', 2021, 24118);
+   'Royal Enfield', 'Interceptor 650', 2021, 'naked', 24118);
 
 -- Asha's ride: Sangla → toward Chitkul, with a ~4 min dropout mid-way.
 -- distance_km is left at 0 on purpose — the ride_tracks trigger computes it,
@@ -74,9 +77,58 @@ insert into privacy_zones (profile_id, label, area) values
 
 -- Asha shares the ride as a route (route geom is the un-gapped ridden line of
 -- the second segment — a route is a recommendation, not a recording).
-insert into routes (id, profile_id, source_ride_id, name, description, terrain_tags, distance_km, geom) values
+insert into routes (id, profile_id, source_ride_id, name, description, terrain_tags, distance_km,
+                    region, difficulty, max_altitude_m, est_duration_minutes,
+                    best_season, road_status, network_coverage, bike_recommendation, geom) values
   ('00000000-0000-4000-d000-000000000001', '00000000-0000-4000-a000-000000000001',
    '00000000-0000-4000-c000-000000000001', 'Sangla–Chitkul road',
    'Tarmac most of the way, broken patches after the bridge.', array['tarmac','broken'],
    9.5,
+   'Himachal', 'moderate', 3450, 55,
+   '{"months":[4,5,6,7,8,9,10]}'::jsonb, 'open', 'patchy', 'any',
    'LINESTRING(78.3700 31.3760, 78.3900 31.3680, 78.4100 31.3590, 78.4350 31.3520)'::geography);
+
+-- Four more roads, chosen to exercise every branch of the discovery ranker
+-- rather than to look plausible. Between them: a pass shut for most of the
+-- year, a road closed outright, one that demands a bike a roadster isn't, one
+-- above the altitude anybody here has ridden, and one an absolute beginner on
+-- a commuter can do on a Sunday.
+--
+-- All owned by asha and public, because that is what the ranker ranks: user
+-- routes other riders shared. (Curated routes were killed on 2026-07-26.)
+insert into routes (id, profile_id, name, description, terrain_tags, distance_km,
+                    region, difficulty, max_altitude_m, est_duration_minutes,
+                    best_season, road_status, network_coverage, bike_recommendation, geom) values
+  ('00000000-0000-4000-d000-000000000002', '00000000-0000-4000-a000-000000000001',
+   'Kunzum La', 'The pass into Spiti. Snow gates shut it more of the year than not.',
+   array['unpaved','gravel'], 78,
+   'Himachal', 'hard', 4590, 240,
+   '{"months":[6,7,8,9]}'::jsonb, 'seasonal_closed', 'none', 'adv_recommended',
+   'LINESTRING(77.6300 32.3900, 77.6500 32.4000, 77.6800 32.4100)'::geography),
+
+  ('00000000-0000-4000-d000-000000000003', '00000000-0000-4000-a000-000000000001',
+   'Jalori Pass', 'Short, steep, tarmac the whole way. Open most of the year.',
+   array['tarmac'], 34,
+   'Himachal', 'moderate', 3120, 95,
+   '{"months":[3,4,5,6,7,8,9,10,11]}'::jsonb, 'open', 'patchy', 'commuter_ok',
+   'LINESTRING(77.3600 31.5300, 77.3800 31.5400, 77.4000 31.5500)'::geography),
+
+  ('00000000-0000-4000-d000-000000000004', '00000000-0000-4000-a000-000000000001',
+   'Chandratal track', 'Loose rock and water crossings. Currently shut after a slide.',
+   array['unpaved','rock'], 14,
+   'Himachal', 'expert', 4300, 90,
+   '{"months":[7,8,9]}'::jsonb, 'closed', 'none', 'adv_required',
+   'LINESTRING(77.6100 32.4800, 77.6200 32.4850, 77.6300 32.4900)'::geography),
+
+  ('00000000-0000-4000-d000-000000000005', '00000000-0000-4000-a000-000000000001',
+   'Manali–Naggar riverside', 'Flat, sealed, signal the whole way. A first ride.',
+   array['tarmac'], 21,
+   'Himachal', 'easy', 2050, 45,
+   '{"months":[1,2,3,4,5,6,7,8,9,10,11,12]}'::jsonb, 'open', 'good', 'commuter_ok',
+   'LINESTRING(77.1800 32.2400, 77.1900 32.2200, 77.2000 32.1000)'::geography);
+
+-- One condition report, so provenance has something true to show. Asha rode
+-- Jalori; the report is recent and clear.
+insert into condition_reports (route_id, profile_id, status, note) values
+  ('00000000-0000-4000-d000-000000000003', '00000000-0000-4000-a000-000000000001',
+   'clear', 'Dry all the way over. Gravel on the north side hairpins.');

@@ -31,6 +31,8 @@
  *                      billing on
  */
 
+import { forecastFor, geocodeOne } from '../_shared/forecast.ts';
+
 const GOOGLE_KEY = Deno.env.get('GOOGLE_MAPS_KEY');
 
 const CORS = {
@@ -248,6 +250,37 @@ Deno.serve(async (req) => {
       const routes = await googleRoute(points, params.alternatives !== false);
       cache.set(key, { at: Date.now(), body: routes });
       return json({ routes });
+    }
+
+    if (action === 'forecast') {
+      const place = String(params.place ?? '').trim();
+      const date = params.date ? new Date(params.date) : null;
+      if (!place || !date || Number.isNaN(+date)) {
+        return json({ error: 'need a place and a date' }, 400);
+      }
+      assertEntitled(userId, 'search');
+
+      // Weather moves slowly enough that the existing ten-minute cache is
+      // generous rather than stale, and a region's forecast is shared across
+      // every rider asking about it.
+      // Read the map directly rather than through cached(): a null body is a
+      // real answer here ("nobody knows yet"), and cached() cannot tell that
+      // apart from a miss — so the one result most likely to repeat would be
+      // the one that never cached.
+      const key = `w:${place}:${date.toISOString().slice(0, 10)}`;
+      const entry = cache.get(key);
+      if (entry && Date.now() - entry.at < CACHE_MS) {
+        return json({ forecast: entry.body, cached: true });
+      }
+
+      if (!GOOGLE_KEY) throw new Error('GOOGLE_MAPS_KEY is not set');
+      throttle(userId, 'search');
+      const at = await geocodeOne(place, GOOGLE_KEY);
+      // No such place is not an error — it is an answer, and the caller says
+      // so rather than showing a weather line for somewhere that isn't there.
+      const forecast = at ? await forecastFor(at.lat, at.lng, date, GOOGLE_KEY) : null;
+      cache.set(key, { at: Date.now(), body: forecast });
+      return json({ forecast });
     }
 
     return json({ error: 'unknown action' }, 400);

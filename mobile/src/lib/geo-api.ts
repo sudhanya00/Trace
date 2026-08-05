@@ -17,6 +17,29 @@ export type PlaceResult = {
 };
 
 /**
+ * The forecast for a place on the day the rider picked — never for today.
+ *
+ * Null is a real answer, meaning either no such place or further out than the
+ * ten days anyone can see. Callers say so plainly rather than falling back to
+ * a seasonal average or to what it happens to be doing now.
+ */
+export type DayForecast = {
+  date: string;
+  min_c: number | null;
+  max_c: number | null;
+  rain_chance: number | null;
+  condition: string | null;
+};
+
+export async function forecast(place: string, date: Date): Promise<DayForecast | null> {
+  const { data, error } = await supabase.functions.invoke('geo', {
+    body: { action: 'forecast', place, date: date.toISOString() },
+  });
+  if (error) throw error;
+  return (data?.forecast as DayForecast | null) ?? null;
+}
+
+/**
  * A line to look at, not to keep. Google's terms restrict storing computed
  * routes, so these coordinates are for display and the WAYPOINTS get saved —
  * the line is recomputed whenever it's needed again.

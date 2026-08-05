@@ -95,7 +95,17 @@ export default function Explore() {
             />
           }
           ListHeaderComponent={
-            suggested.length > 0 ? (
+            <View>
+              {/* The way into Ride AI. A single row rather than a card: the
+                  feed is the front door, and a prompt box at the top of it
+                  would be a second one competing with the first. */}
+              <Pressable onPress={() => router.push('/ride-ai')} style={st.askRow}>
+                <Feather name="compass" size={15} color={color.trace} />
+                <Text style={st.askText}>Where should I ride?</Text>
+                <Feather name="chevron-right" size={15} color={color.dim} />
+              </Pressable>
+
+              {suggested.length > 0 ? (
               <View style={st.suggestWrap}>
                 <MonoLabel size={8.5} style={{ marginBottom: 8 }}>
                   Riders you might know
@@ -113,7 +123,8 @@ export default function Explore() {
                   )}
                 />
               </View>
-            ) : null
+              ) : null}
+            </View>
           }
           ListEmptyComponent={
             <Text style={st.empty}>
@@ -163,6 +174,16 @@ const st = StyleSheet.create({
     marginBottom: 2,
   },
   list: { paddingBottom: 132 },
+  askRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: color.hair,
+    marginBottom: 4,
+  },
+  askText: { flex: 1, fontFamily: font.bodyMedium, fontSize: 14, color: color.white },
   suggestWrap: {
     paddingLeft: layout.screenPadding,
     paddingVertical: 12,

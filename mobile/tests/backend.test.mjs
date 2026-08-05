@@ -2327,3 +2327,672 @@ describe('cross-user read matrix', () => {
     }
   });
 });
+
+/**
+ * Leaving, and forgetting.
+ *
+ * Deletion is tested on throwaway riders, never on asha or veer — a test that
+ * deletes a fixture the rest of the suite depends on passes once and then
+ * poisons everything after it.
+ */
+describe('leaving and forgetting', () => {
+  /** A real signed-in rider, public so asha can watch their rows appear and go. */
+  async function newRider(tag) {
+    const client = createClient(URL, ANON);
+    const up = await client.auth.signUp({
+      email: `${tag}-${Date.now()}@test.local`,
+      password: 'password123',
+    });
+    assert.ok(up.data?.user?.id, `signUp failed: ${up.error?.message}`);
+    const id = up.data.user.id;
+    const { error } = await client
+      .from('profiles')
+      .insert({ id, handle: `${tag}${Date.now()}`.slice(0, 20), visibility: 'public' });
+    assert.equal(error, null, `profile insert failed: ${error?.message}`);
+    return { client, id };
+  }
+
+  it('deleting an account takes the rider’s data with it', async () => {
+    const t = await newRider('gone');
+    await t.client.from('bikes').insert({ profile_id: t.id, make: 'lifecycle', model: 'x' });
+
+    // asha can see them, so her view is a real observation and not an empty one.
+    const before = await asha.from('bikes').select('id').eq('profile_id', t.id);
+    assert.ok((before.data?.length ?? 0) > 0, 'the rider’s bike exists to begin with');
+
+    const { error } = await t.client.rpc('delete_own_account');
+    assert.equal(error, null, `delete_own_account failed: ${error?.message}`);
+
+    const profile = await asha.from('profiles').select('id').eq('id', t.id);
+    assert.equal(profile.data?.length ?? 0, 0, 'the profile is gone');
+    const bikes = await asha.from('bikes').select('id').eq('profile_id', t.id);
+    assert.equal(bikes.data?.length ?? 0, 0, 'and everything hanging off it cascaded');
+  });
+
+  it('a crew outlives its founder, and keeps an admin', async () => {
+    const founder = await newRider('founder');
+    const { data: crew, error: ce } = await founder.client
+      .from('crews')
+      .insert({ created_by: founder.id, name: `lifecycle: crew ${Date.now()}`, region: 'HP' })
+      .select('id')
+      .single();
+    assert.equal(ce, null, `crew insert failed: ${ce?.message}`);
+
+    // asha joins as an ordinary member; the founder is the only admin.
+    const { error: je } = await asha
+      .from('crew_members')
+      .insert({ crew_id: crew.id, profile_id: ashaId, role: 'member' });
+    assert.equal(je, null, `join failed: ${je?.message}`);
+
+    await founder.client.rpc('delete_own_account');
+
+    const survived = await asha.from('crews').select('id, created_by').eq('id', crew.id);
+    assert.equal(survived.data?.length, 1, 'the crew is still standing');
+    assert.equal(survived.data[0].created_by, null, 'and no longer points at a deleted rider');
+
+    const me = await asha
+      .from('crew_members')
+      .select('role')
+      .eq('crew_id', crew.id)
+      .eq('profile_id', ashaId)
+      .single();
+    assert.equal(me.data.role, 'admin', 'the longest-standing member inherited it');
+
+    await asha.from('crews').delete().eq('id', crew.id);
+  });
+
+  it('deleting an account is not something a signed-out caller can do', async () => {
+    const { error } = await anon.rpc('delete_own_account');
+    assert.ok(error, 'anon must not reach it at all');
+  });
+
+  it('a position past its retention is swept on the next write', async () => {
+    await asha.from('live_positions').upsert({
+      profile_id: ashaId,
+      geom: 'POINT(78.4 31.35)',
+      updated_at: new Date(Date.now() - 2 * 3600e3).toISOString(),
+    });
+    // The statement trigger sweeps anything past an hour — including this.
+    const { data } = await asha.from('live_positions').select('profile_id').eq('profile_id', ashaId);
+    assert.equal(data?.length ?? 0, 0, 'a two-hour-old position does not survive the write');
+  });
+
+  it('a position too stale to be live is not reported as live', async () => {
+    // Half an hour: inside retention, well past the 15 minutes crew_live_riders
+    // has always enforced. The row exists; the answer must not.
+    await asha.from('live_positions').upsert({
+      profile_id: ashaId,
+      geom: 'POINT(78.4 31.35)',
+      updated_at: new Date(Date.now() - 30 * 60e3).toISOString(),
+    });
+    const row = await asha.from('live_positions').select('profile_id').eq('profile_id', ashaId);
+    assert.equal(row.data?.length, 1, 'the row is still retained');
+
+    const { data } = await asha.rpc('live_position_of', { p_profile_id: ashaId });
+    assert.equal(data, null, 'but it is too old to be anyone’s live position');
+
+    await asha.from('live_positions').delete().eq('profile_id', ashaId);
+  });
+
+  it('a fresh position still reports', async () => {
+    await asha.from('live_positions').upsert({
+      profile_id: ashaId,
+      geom: 'POINT(78.4 31.35)',
+      updated_at: new Date().toISOString(),
+    });
+    const { data } = await asha.rpc('live_position_of', { p_profile_id: ashaId });
+    assert.ok(data?.point, 'the tightening did not break live sharing');
+    await asha.from('live_positions').delete().eq('profile_id', ashaId);
+  });
+});
+
+/**
+ * The delete flow, server side.
+ *
+ * deleteOwnAccount() in src/lib/db.ts cannot be imported here — it pulls in
+ * src/lib/supabase.ts, which needs AsyncStorage and the EXPO_PUBLIC_* env. So
+ * this runs the same calls in the same order rather than the function itself,
+ * and is honest about what that does and does not prove: it exercises the
+ * storage policies, the ordering, and the RPC — every part that can fail on the
+ * server — and none of the rendering, the hold gesture, or the redirect.
+ */
+describe('the delete flow, end to end on the server', () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00]);
+
+  async function newRider(tag) {
+    const client = createClient(URL, ANON);
+    const up = await client.auth.signUp({
+      email: `${tag}-${Date.now()}@test.local`,
+      password: 'password123',
+    });
+    assert.ok(up.data?.user?.id, `signUp failed: ${up.error?.message}`);
+    const id = up.data.user.id;
+    await client.from('profiles').insert({
+      id, handle: `${tag}${Date.now()}`.slice(0, 20), visibility: 'public',
+    });
+    return { client, id };
+  }
+
+  it('clears the rider’s photos, then the account, in that order', async () => {
+    const t = await newRider('delflow');
+
+    // A photo in each bucket, uploaded exactly as the app uploads them.
+    for (const bucket of ['avatars', 'route-photos']) {
+      const { error } = await t.client.storage
+        .from(bucket)
+        .upload(`${t.id}/avatar.jpg`, jpeg, { contentType: 'image/jpeg', upsert: true });
+      assert.equal(error, null, `${bucket} upload failed: ${error?.message}`);
+    }
+
+    // Present to begin with, or the deletion below proves nothing.
+    for (const bucket of ['avatars', 'route-photos']) {
+      const { data } = await t.client.storage.from(bucket).list(t.id);
+      assert.equal(data?.length, 1, `${bucket}: the photo is there first`);
+    }
+
+    // --- the sequence deleteOwnAccount() runs ---
+    for (const bucket of ['avatars', 'route-photos']) {
+      const { data } = await t.client.storage.from(bucket).list(t.id);
+      if (data?.length) {
+        const { error } = await t.client.storage
+          .from(bucket)
+          .remove(data.map((f) => `${t.id}/${f.name}`));
+        assert.equal(error, null, `${bucket} remove failed: ${error?.message}`);
+      }
+    }
+    const { error: rpcErr } = await t.client.rpc('delete_own_account');
+    assert.equal(rpcErr, null, `delete_own_account failed: ${rpcErr?.message}`);
+    // ---
+
+    // Buckets are public-read, so anon is a fair witness that the files are
+    // gone rather than merely invisible to their owner.
+    for (const bucket of ['avatars', 'route-photos']) {
+      const { data } = await anon.storage.from(bucket).list(t.id);
+      assert.equal(data?.length ?? 0, 0, `${bucket}: nothing of theirs is left`);
+    }
+    const { data: profile } = await asha.from('profiles').select('id').eq('id', t.id);
+    assert.equal(profile?.length ?? 0, 0, 'and the account is gone');
+  });
+
+  it('a dead session cannot delete anything else', async () => {
+    const t = await newRider('deadsession');
+    await t.client.rpc('delete_own_account');
+    // The JWT is still in hand and still unexpired — but it names nobody now.
+    const { error } = await t.client
+      .from('bikes')
+      .insert({ profile_id: ashaId, make: 'delflow', model: 'x' });
+    assert.ok(error, 'a token for a deleted account writes nothing');
+  });
+
+  it('the bucket ceiling and type list actually bite', async () => {
+    // The hardening from 20260726000300, exercised rather than assumed.
+    const t = await newRider('bucketlimit');
+    const html = new TextEncoder().encode('<html><script>alert(1)</script></html>');
+    const { error: mime } = await t.client.storage
+      .from('avatars')
+      .upload(`${t.id}/x.html`, html, { contentType: 'text/html', upsert: true });
+    assert.ok(mime, 'an HTML upload into a public bucket is refused');
+
+    const tooBig = new Uint8Array(6 * 1024 * 1024);
+    const { error: size } = await t.client.storage
+      .from('avatars')
+      .upload(`${t.id}/big.jpg`, tooBig, { contentType: 'image/jpeg', upsert: true });
+    assert.ok(size, 'a 6MB upload is refused against the 5MB ceiling');
+
+    await t.client.rpc('delete_own_account');
+  });
+});
+
+/**
+ * The rider fingerprint.
+ *
+ * This is the struct that ends up inside a model prompt, so the tests are as
+ * much about what it does NOT contain as what it does: no coordinates, no
+ * handles, no ids, and nothing describing anybody but the caller.
+ */
+describe('rider fingerprint', () => {
+  it('describes the caller, from what they actually rode', async () => {
+    const { data, error } = await asha.rpc('rider_profile');
+    assert.equal(error, null, `rider_profile failed: ${error?.message}`);
+    assert.equal(data.length, 1, 'one fingerprint, for the caller');
+
+    const me = data[0];
+    assert.ok(me.ride_count >= 1, 'asha has ridden');
+    assert.ok(Number(me.total_km) > 0, 'and covered distance');
+    assert.ok(
+      Number(me.longest_ride_km) <= Number(me.total_km),
+      'the longest day cannot exceed the total'
+    );
+    assert.ok(Array.isArray(me.active_months), 'months she rides in');
+    assert.ok(Array.isArray(me.bike_types), 'what she rides');
+    assert.equal(typeof me.home_region, 'string');
+  });
+
+  it('carries no coordinates, no identifiers, and nobody else', async () => {
+    const { data } = await asha.rpc('rider_profile');
+    const me = data[0];
+    const shape = Object.keys(me).sort();
+
+    // Whitelist, not blacklist: a new column has to be added here deliberately,
+    // which is the moment to ask whether it belongs in a prompt at all.
+    assert.deepEqual(shape, [
+      'active_months',
+      'bike_types',
+      'hardest_difficulty',
+      'highest_altitude_m',
+      'home_region',
+      'longest_ride_km',
+      'max_odometer_km',
+      'ride_count',
+      'routes_ridden',
+      'terrain_ridden',
+      'total_km',
+    ]);
+
+    const blob = JSON.stringify(me);
+    for (const leak of ['lat', 'lng', 'geom', 'coordinates', 'handle', 'email', ashaId]) {
+      assert.ok(!blob.includes(leak), `fingerprint leaked ${leak}`);
+    }
+  });
+
+  it('is not a way to ask about another rider', async () => {
+    // No argument means no subject but yourself — asha and veer get their own
+    // numbers from the identical call, and neither can request the other's.
+    const mine = (await asha.rpc('rider_profile')).data[0];
+    const theirs = (await veer.rpc('rider_profile')).data[0];
+    assert.notEqual(
+      Number(mine.total_km),
+      Number(theirs.total_km),
+      'two riders, two fingerprints'
+    );
+
+    // And there is no overload that takes one.
+    const { error } = await asha.rpc('rider_profile', { p_profile_id: veerId });
+    assert.ok(error, 'no argument-taking variant exists to be pointed at anyone');
+  });
+
+  it('tells a signed-out caller nothing at all', async () => {
+    const { data, error } = await anon.rpc('rider_profile');
+    assert.ok(error || (data?.length ?? 0) === 0, 'anon gets no fingerprint');
+  });
+
+  it('a rider with no history gets an empty fingerprint, not an error', async () => {
+    // The new-city case is also the empty-history case — the ranker must be
+    // able to ask about someone who has ridden nothing yet.
+    const fresh = createClient(URL, ANON);
+    const up = await fresh.auth.signUp({
+      email: `fingerprint-${Date.now()}@test.local`,
+      password: 'password123',
+    });
+    assert.ok(up.data?.user?.id, `signUp failed: ${up.error?.message}`);
+    await fresh
+      .from('profiles')
+      .insert({ id: up.data.user.id, handle: `fp${Date.now()}`.slice(0, 20) });
+
+    const { data, error } = await fresh.rpc('rider_profile');
+    assert.equal(error, null, `a new rider is not an error: ${error?.message}`);
+    assert.equal(data.length, 1, 'they still get a row');
+    assert.equal(data[0].ride_count, 0, 'just an empty one');
+    assert.equal(Number(data[0].total_km), 0);
+    assert.deepEqual(data[0].terrain_ridden, []);
+    assert.equal(data[0].highest_altitude_m, null, 'nothing ridden, nothing known');
+
+    await fresh.rpc('delete_own_account');
+  });
+
+  it('counts a route as ridden when the rider shared it from a ride', async () => {
+    const before = (await asha.rpc('rider_profile')).data[0].routes_ridden;
+
+    const { data: route, error } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'public',
+        source_ride_id: ASHA_RIDE,
+        name: 'fp: shared from a ride',
+        distance_km: 12,
+        difficulty: 'expert',
+        max_altitude_m: 4100,
+        terrain_tags: ['unpaved'],
+        geom: 'LINESTRING(78.37 31.376, 78.39 31.368)',
+      })
+      .select('id')
+      .single();
+    assert.equal(error, null, `route insert failed: ${error?.message}`);
+
+    const after = (await asha.rpc('rider_profile')).data[0];
+    assert.equal(after.routes_ridden, before + 1, 'the shared route counts');
+    assert.equal(after.hardest_difficulty, 'expert', 'and raises the hardest finished');
+    assert.equal(after.highest_altitude_m, 4100, 'and the highest ridden');
+    assert.ok(after.terrain_ridden.includes('unpaved'), 'and the surfaces');
+
+    await asha.from('routes').delete().eq('id', route.id);
+  });
+});
+
+/**
+ * The discovery ranker.
+ *
+ * No model is involved here, and that is the point: everything that can hurt a
+ * rider is decided in SQL against columns, so it can be tested. These assert
+ * the two tiers separately — refused (not shown at all) and flagged (shown
+ * with a code) — because conflating them is how you end up either hiding roads
+ * nobody asked you to hide, or showing a shut one with a caption.
+ */
+describe('discovery ranker', () => {
+  const JALORI = '00000000-0000-4000-d000-000000000003';
+  const CHANDRATAL = '00000000-0000-4000-d000-000000000004';
+  const RIVERSIDE = '00000000-0000-4000-d000-000000000005';
+  const KUNZUM = '00000000-0000-4000-d000-000000000002';
+
+  const july = '2026-07-15T00:00:00Z';
+  const february = '2026-02-15T00:00:00Z';
+
+  const byId = (rows) => Object.fromEntries(rows.map((r) => [r.route_id, r]));
+  const rank = (rows, id) => rows.findIndex((r) => r.route_id === id);
+
+  it('never shows a road that is closed', async () => {
+    for (const who of [asha, veer]) {
+      const { data, error } = await who.rpc('discover_routes', {
+        p_region: 'Himachal',
+        p_when: july,
+      });
+      assert.equal(error, null, `discover_routes failed: ${error?.message}`);
+      assert.ok(data.length > 0, 'the region is not empty');
+      assert.equal(
+        byId(data)[CHANDRATAL],
+        undefined,
+        'a closed road is refused, not flagged'
+      );
+    }
+  });
+
+  it('refuses a road the rider’s garage cannot do', async () => {
+    // Chandratal is adv_required AND closed, so it cannot separate the two
+    // reasons. This one is adv_required and open.
+    const { data: hard, error } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'public',
+        name: 'rank: adv only, open',
+        region: 'Himachal',
+        distance_km: 12,
+        difficulty: 'hard',
+        max_altitude_m: 2400,
+        road_status: 'open',
+        bike_recommendation: 'adv_required',
+        terrain_tags: ['unpaved'],
+        geom: 'LINESTRING(77.10 32.10, 77.11 32.11)',
+      })
+      .select('id')
+      .single();
+    assert.equal(error, null, `insert failed: ${error?.message}`);
+
+    // asha rides a Himalayan.
+    const mine = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    assert.ok(byId(mine.data)[hard.id], 'an adv rider is shown an adv road');
+
+    // veer rides an Interceptor.
+    const theirs = await veer.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    assert.equal(
+      byId(theirs.data)[hard.id],
+      undefined,
+      'a roadster-only rider is not offered a road that demands an adv'
+    );
+
+    await asha.from('routes').delete().eq('id', hard.id);
+  });
+
+  it('flags a road out of season and sinks it, but does not hide it', async () => {
+    const winter = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: february });
+    const jalori = byId(winter.data)[JALORI];
+    assert.ok(jalori, 'still listed — the rider may be planning ahead');
+    assert.ok(
+      jalori.warnings.includes('out_of_season'),
+      'but flagged for the month they chose'
+    );
+
+    const summer = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    assert.ok(
+      !byId(summer.data)[JALORI].warnings.includes('out_of_season'),
+      'and unflagged in a month it is open'
+    );
+    assert.ok(
+      rank(summer.data, JALORI) < rank(winter.data, JALORI),
+      'the same road ranks higher in the month it can actually be ridden'
+    );
+  });
+
+  it('warns on the attributes that matter, as codes rather than prose', async () => {
+    const { data } = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    const kunzum = byId(data)[KUNZUM];
+    assert.ok(kunzum.warnings.includes('high_pass'), '4590m is a high pass');
+    assert.ok(kunzum.warnings.includes('no_signal'), 'and has no coverage');
+    assert.ok(kunzum.warnings.includes('seasonal_gate'), 'and is gated seasonally');
+
+    // Codes, not sentences — §8 owns the copy, and a sentence written in SQL
+    // would be a sentence outside the design system.
+    for (const w of kunzum.warnings) {
+      assert.match(w, /^[a-z_]+$/, `"${w}" is prose, not a code`);
+    }
+  });
+
+  it('does not warn a rider about everything just because they are new', async () => {
+    // veer's longest day is ~5km. A naive multiplier flags a sealed 21km
+    // riverside road as beyond him — which is the one road he should be shown.
+    const { data } = await veer.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    const riverside = byId(data)[RIVERSIDE];
+    assert.ok(riverside, 'the easy road is listed');
+    assert.deepEqual(riverside.warnings, [], 'and carries no warnings at all');
+
+    assert.ok(
+      rank(data, RIVERSIDE) < rank(data, KUNZUM),
+      'and outranks a 4590m unpaved pass for a rider with no history'
+    );
+  });
+
+  it('ranks a road riders have actually ridden above one nobody has', async () => {
+    const { data } = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    const ridden = data.filter((r) => r.riders_count > 0);
+    assert.ok(ridden.length > 0, 'something in the seed has been ridden');
+    for (const r of ridden) {
+      const unridden = data.filter((u) => u.riders_count === 0);
+      for (const u of unridden) {
+        // Not an absolute rule — a flagged verified road can lose — but the
+        // verified one here carries no warnings, so it must win.
+        if (r.warnings.length === 0) {
+          assert.ok(
+            Number(r.score) >= Number(u.score),
+            `${r.name} (ridden) should not rank below ${u.name} (unridden)`
+          );
+        }
+      }
+    }
+  });
+
+  it('surfaces the provenance a badge is drawn from', async () => {
+    const { data } = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    const jalori = byId(data)[JALORI];
+    assert.equal(jalori.last_condition, 'clear', 'the latest report status');
+    assert.ok(jalori.last_condition_at, 'and when it was filed');
+  });
+
+  it('honours the region filter, and answers without one', async () => {
+    const scoped = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    assert.ok(scoped.data.every((r) => r.region === 'Himachal'), 'scoped to the region asked for');
+
+    const nowhere = await asha.rpc('discover_routes', { p_region: 'Atlantis', p_when: july });
+    assert.equal(nowhere.data.length, 0, 'an unknown region is empty, not an error');
+
+    const anywhere = await asha.rpc('discover_routes', {});
+    assert.ok(anywhere.data.length > 0, 'no region means everywhere');
+  });
+
+  it('tells a signed-out caller nothing', async () => {
+    const { data, error } = await anon.rpc('discover_routes', { p_region: 'Himachal' });
+    assert.ok(error || (data?.length ?? 0) === 0, 'the ranker needs a rider');
+  });
+
+  it('never returns geometry', async () => {
+    const { data } = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    const blob = JSON.stringify(data);
+    for (const leak of ['geom', 'coordinates', 'LINESTRING', 'waypoints']) {
+      assert.ok(!blob.includes(leak), `ranker leaked ${leak}`);
+    }
+  });
+});
+
+/**
+ * The contract between discover_routes() and the client type.
+ *
+ * TypeScript checks that DiscoverCard reads fields DiscoveredRoute declares.
+ * Nothing checks that DiscoveredRoute matches what the function actually
+ * returns — rename a column in SQL and the app reads undefined at runtime with
+ * a clean typecheck. This is that check.
+ */
+describe('discover_routes shape', () => {
+  it('returns exactly the columns the client declares', async () => {
+    const { data } = await asha.rpc('discover_routes', {
+      p_region: 'Himachal',
+      p_when: '2026-07-15T00:00:00Z',
+    });
+    assert.ok(data.length > 0, 'something to inspect');
+
+    assert.deepEqual(Object.keys(data[0]).sort(), [
+      'description',
+      'difficulty',
+      'distance_km',
+      'est_duration_minutes',
+      'last_condition',
+      'last_condition_at',
+      'max_altitude_m',
+      'name',
+      'network_coverage',
+      'region',
+      'riders_count',
+      'road_status',
+      'route_id',
+      'score',
+      'terrain_tags',
+      'warnings',
+    ]);
+  });
+
+  it('only raises warning codes the client has copy for', async () => {
+    // The client drops unknown codes rather than showing an identifier to a
+    // rider, so a new rule shipping ahead of its copy fails silently rather
+    // than loudly. This is the loud half.
+    const known = [
+      'high_pass',
+      'out_of_season',
+      'seasonal_gate',
+      'no_signal',
+      'above_your_altitude',
+      'beyond_your_longest',
+    ];
+    for (const when of ['2026-02-15T00:00:00Z', '2026-07-15T00:00:00Z']) {
+      for (const who of [asha, veer]) {
+        const { data } = await who.rpc('discover_routes', { p_region: 'Himachal', p_when: when });
+        for (const r of data) {
+          for (const w of r.warnings) {
+            assert.ok(known.includes(w), `${w} has no copy in DiscoverCard`);
+          }
+        }
+      }
+    }
+  });
+});
+
+/**
+ * The handoff: suggestion → planned ride.
+ *
+ * This is the front half of the flywheel, and it only works if a rider can
+ * plan a ride on a road SOMEBODY ELSE shared. The discover list surfaces
+ * asha's routes to veer; the tap has to survive RLS on both the read (to
+ * pre-select it) and the write (to point an invite at it).
+ */
+describe('planning a discovered ride', () => {
+  const RIVERSIDE = '00000000-0000-4000-d000-000000000005';
+
+  it('a stranger can load the road the list offered them', async () => {
+    // invite/new fetches the route to pre-select it, rather than finding it in
+    // the picker — the picker only has your own routes and curated ones, and a
+    // discovered road is neither.
+    const { data, error } = await veer
+      .from('routes')
+      .select('id, name, region, difficulty')
+      .eq('id', RIVERSIDE)
+      .maybeSingle();
+    assert.equal(error, null, `stranger could not load the route: ${error?.message}`);
+    assert.ok(data, 'the road the discover list just offered is readable');
+    assert.equal(data.name, 'Manali–Naggar riverside');
+  });
+
+  it('and plan a ride on it, on somebody else’s road', async () => {
+    const { data: invite, error } = await veer
+      .from('ride_invites')
+      .insert({
+        created_by: veerId,
+        route_id: RIVERSIDE,
+        title: 'handoff: Sunday on the riverside',
+        starts_at: new Date(Date.now() + 3 * 864e5).toISOString(),
+      })
+      .select('id, route_id, created_by')
+      .single();
+    assert.equal(error, null, `could not plan the ride: ${error?.message}`);
+    assert.equal(invite.route_id, RIVERSIDE, 'pointing at the road that was suggested');
+    assert.equal(invite.created_by, veerId, 'and owned by the rider who planned it');
+
+    // It lands on the public board like any other planned ride — nothing about
+    // arriving via discovery makes it a different kind of object.
+    const board = await veer.rpc('invite_list', { p_crew_id: null });
+    assert.ok(
+      board.data.some((i) => i.id === invite.id),
+      'a discovered ride is just a ride'
+    );
+
+    await veer.from('ride_invites').delete().eq('id', invite.id);
+  });
+
+  it('the ride ridden from it counts as riding that road', async () => {
+    // Closing the loop: rider_profile counts a route as ridden when a ride
+    // points at the invite that points at the route. That is what turns an
+    // unverified suggestion into a badge for whoever asks next.
+    const { data: invite } = await veer
+      .from('ride_invites')
+      .insert({
+        created_by: veerId,
+        route_id: RIVERSIDE,
+        title: 'handoff: rode it',
+        starts_at: new Date(Date.now() + 864e5).toISOString(),
+      })
+      .select('id')
+      .single();
+
+    const before = (await veer.rpc('rider_profile')).data[0].routes_ridden;
+
+    const rideId = crypto.randomUUID();
+    await veer.from('rides').insert({
+      id: rideId,
+      profile_id: veerId,
+      planned_ride_id: invite.id,
+      started_at: new Date().toISOString(),
+      ended_at: new Date().toISOString(),
+      title: 'handoff: the ride',
+    });
+
+    const after = (await veer.rpc('rider_profile')).data[0].routes_ridden;
+    assert.equal(after, before + 1, 'the road now counts as one he has ridden');
+
+    // And the provenance the next rider sees has moved.
+    const seen = await asha.rpc('discover_routes', { p_region: 'Himachal' });
+    const row = seen.data.find((r) => r.route_id === RIVERSIDE);
+    assert.ok(row.riders_count >= 1, 'the card that had no badge now has one');
+
+    await veer.from('rides').delete().eq('id', rideId);
+    await veer.from('ride_invites').delete().eq('id', invite.id);
+  });
+});
