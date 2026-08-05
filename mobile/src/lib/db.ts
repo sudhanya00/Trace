@@ -438,6 +438,23 @@ export async function publicRouteSegments(routeId: string): Promise<[number, num
   return null;
 }
 
+/**
+ * Retire one of your routes.
+ *
+ * Through an RPC rather than an update, and not by preference: a plain
+ * `update routes set deleted_at` is refused by Postgres, because it applies the
+ * SELECT policy to the new row and routes_read hides anything deleted — you
+ * cannot update a row into a state where you can no longer see it. The rule
+ * about planned rides that still point at the road lives in the same function,
+ * where it decides rather than advises. See 20260805000200.
+ *
+ * The messages raised there are written to be shown to a rider as they are.
+ */
+export async function deleteRoute(routeId: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_own_route', { p_route_id: routeId });
+  if (error) throw error;
+}
+
 export async function updateRoutePhoto(routeId: string, photoUrl: string): Promise<void> {
   const { error } = await supabase.from('routes').update({ photo_url: photoUrl }).eq('id', routeId);
   if (error) throw error;

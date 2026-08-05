@@ -1,6 +1,6 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { showAlert } from '../../src/components/Dialog';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -33,6 +33,7 @@ import {
   pickableRoutes,
   Route,
 } from '../../src/lib/db';
+import { HANDOFF, takeHandOff } from '../../src/lib/handoff';
 import { accent, color, font, layout } from '../../src/theme/tokens';
 
 const BIKE_CHOICES: (BikeType | 'any')[] = [
@@ -120,6 +121,28 @@ export default function NewInvite() {
       alive = false;
     };
   }, [presetRoute]);
+
+  /**
+   * Coming back from having planned a route mid-form.
+   *
+   * Everything else on this screen is exactly as it was left — the form was
+   * never unmounted, only covered — so all this has to do is put the new road
+   * where the rider would expect it: selected, naming the ride if they hadn't
+   * named it themselves, and in the picker list, so reopening the sheet shows
+   * the route they just drew instead of appearing to have lost it.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      const planned = takeHandOff<Route>(HANDOFF.plannedRoute);
+      if (!planned) return;
+      setRoute(planned);
+      setTitle((t) => (t.trim() ? t : planned.name));
+      setRoutes((prev) => ({
+        ...prev,
+        mine: [planned, ...prev.mine.filter((r) => r.id !== planned.id)],
+      }));
+    }, [])
+  );
 
   // The picker cannot produce a past time, so this is only guarding against a
   // sheet left open across the moment the ride was due.
@@ -359,7 +382,10 @@ export default function NewInvite() {
           on={false}
           onPress={() => {
             setPickingRoute(false);
-            router.push('/route/plan');
+            // returnTo=ride: come back here when it's saved, rather than
+            // stranding the rider on the new route's page with a half-filled
+            // ride form abandoned behind it.
+            router.push('/route/plan?returnTo=ride');
           }}
         />
         {routes.curated.length > 0 && (

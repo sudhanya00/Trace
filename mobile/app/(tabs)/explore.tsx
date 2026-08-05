@@ -101,7 +101,7 @@ export default function Explore() {
                   would be a second one competing with the first. */}
               <Pressable onPress={() => router.push('/ride-ai')} style={st.askRow}>
                 <Feather name="compass" size={15} color={color.trace} />
-                <Text style={st.askText}>Where should I ride?</Text>
+                <Text style={st.askText}>Ride AI</Text>
                 <Feather name="chevron-right" size={15} color={color.dim} />
               </Pressable>
 

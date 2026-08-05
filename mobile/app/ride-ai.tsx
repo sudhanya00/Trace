@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -44,14 +45,81 @@ type Exchange = {
  * a rider should see that a pass is gated whether or not the sentence above
  * mentioned it.
  */
+/**
+ * How much of a conversation is kept on the device.
+ *
+ * The edge function already caps what it will accept, and keeping more here
+ * than it will ever read would be storing something to throw away. Trimmed from
+ * the front: the useful end of a conversation is the recent end.
+ */
+const KEEP_EXCHANGES = 20;
+
 export default function RideAI() {
-  const { profile } = useAuth();
+  const { profile, session } = useAuth();
   const [draft, setDraft] = useState('');
   const [thread, setThread] = useState<Exchange[]>([]);
   const [contents, setContents] = useState<RideAiTurn[]>([]);
   const [busy, setBusy] = useState(false);
   const scroller = useRef<ScrollView>(null);
   const kb = useKeyboardHeight();
+
+  // Per rider, so a shared phone never shows one person's conversation to
+  // another — the same reason the profile cache is keyed this way.
+  const storeKey = session ? `ride-ai:thread:${session.user.id}` : null;
+
+  /**
+   * Restored before anything is written back.
+   *
+   * The flag is not ceremony: without it the save effect below fires on the
+   * first render with the empty initial state and erases the conversation it
+   * was supposed to be protecting, which is the classic way this pattern eats
+   * its own data.
+   */
+  const [restored, setRestored] = useState(false);
+
+  useEffect(() => {
+    if (!storeKey) return;
+    let alive = true;
+    AsyncStorage.getItem(storeKey)
+      .then((raw) => {
+        if (!alive || !raw) return;
+        const saved = JSON.parse(raw) as { thread?: Exchange[]; contents?: RideAiTurn[] };
+        setThread(saved.thread ?? []);
+        setContents(saved.contents ?? []);
+      })
+      .catch(() => {
+        // A conversation that will not parse is not worth a dialog. Start clean.
+      })
+      .finally(() => {
+        if (alive) setRestored(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [storeKey]);
+
+  useEffect(() => {
+    if (!storeKey || !restored) return;
+    AsyncStorage.setItem(
+      storeKey,
+      JSON.stringify({ thread: thread.slice(-KEEP_EXCHANGES), contents })
+    ).catch(() => {});
+  }, [thread, contents, storeKey, restored]);
+
+  const clearThread = () => {
+    showAlert('Start again?', 'This conversation goes. The roads in it stay where they are.', [
+      { text: 'Keep it', style: 'cancel' },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: () => {
+          setThread([]);
+          setContents([]);
+          if (storeKey) AsyncStorage.removeItem(storeKey).catch(() => {});
+        },
+      },
+    ]);
+  };
 
   const where = profile?.home_region;
   const openers = [
@@ -102,6 +170,11 @@ export default function RideAI() {
           </MonoLabel>
           <Text style={st.h1}>Where to</Text>
         </View>
+        {thread.length > 0 && (
+          <Pressable onPress={clearThread} hitSlop={10} style={{ padding: 8 }}>
+            <Text style={st.back}>New</Text>
+          </Pressable>
+        )}
         <Pressable onPress={() => router.back()} hitSlop={10} style={{ padding: 8 }}>
           <Text style={st.back}>Back</Text>
         </Pressable>

@@ -1141,6 +1141,71 @@ describe('route standardization', () => {
     assert.equal(line, null, 'a named-but-unmapped ride is still a Route row');
   });
 
+  it('a rider can retire their own route, and only their own', async () => {
+    const { data: route, error } = await asha
+      .from('routes')
+      .insert({
+        profile_id: ashaId,
+        source: 'user',
+        visibility: 'public',
+        name: 'test: deletable road',
+        region: 'Himachal',
+        distance_km: 12,
+        // route_drawable: a user route has to be a road, not just a name.
+        // Waypoints rather than geom, because a planner-made route is the kind
+        // a rider is most likely to want rid of.
+        waypoints: [
+          { lat: 31.1, lng: 77.1, place_id: null, label: 'test start' },
+          { lat: 31.2, lng: 77.2, place_id: null, label: 'test end' },
+        ],
+      })
+      .select('id')
+      .single();
+    assert.equal(error, null, `insert failed: ${error?.message}`);
+
+    // Vacuity guard: it has to be readable first, or "gone" proves nothing.
+    const before = await asha.from('routes').select('id').eq('id', route.id).maybeSingle();
+    assert.ok(before.data, 'the route exists to begin with');
+
+    // Somebody else's is refused outright, and the road survives it.
+    const stranger = await veer.rpc('delete_own_route', { p_route_id: route.id });
+    assert.ok(stranger.error, 'a stranger cannot retire a road that is not theirs');
+    const survived = await asha.from('routes').select('id').eq('id', route.id).maybeSingle();
+    assert.ok(survived.data, 'and it is still there afterwards');
+
+    // Nor can the owner, while a planned ride still points at it — those riders
+    // have already said yes. The refusal is in SQL, not in the app.
+    const { data: inv } = await asha
+      .from('ride_invites')
+      .insert({
+        created_by: ashaId,
+        route_id: route.id,
+        title: 'test: ride that uses the deletable road',
+        starts_at: new Date(Date.now() + 86400e3).toISOString(),
+      })
+      .select('id')
+      .single();
+    const blocked = await asha.rpc('delete_own_route', { p_route_id: route.id });
+    assert.ok(blocked.error, 'a road somebody is turning up for cannot be retired');
+    assert.match(blocked.error.message, /planned ride/i, 'and it says why');
+
+    // Cancel the ride and the road becomes the owner's to retire.
+    await asha.from('ride_invites').delete().eq('id', inv.id);
+    const mine = await asha.rpc('delete_own_route', { p_route_id: route.id });
+    assert.equal(mine.error, null, `owner delete failed: ${mine.error?.message}`);
+
+    const after = await asha.from('routes').select('id').eq('id', route.id).maybeSingle();
+    assert.equal(after.data, null, 'and it stops being readable, to the owner too');
+
+    // And it leaves discovery, which reads the same deleted_at.
+    const found = await veer.rpc('discover_routes', { p_region: 'Himachal' });
+    assert.equal(
+      (found.data ?? []).find((r) => r.route_id === route.id),
+      undefined,
+      'a retired road is not discoverable by anyone'
+    );
+  });
+
   it('a private rider’s route stays hidden from strangers but visible to them', async () => {
     // veer is private and unfollowed by asha.
     const { data: mine, error } = await veer
@@ -2681,6 +2746,7 @@ describe('rider fingerprint', () => {
  * nobody asked you to hide, or showing a shut one with a caption.
  */
 describe('discovery ranker', () => {
+  const SANGLA = '00000000-0000-4000-d000-000000000001';
   const JALORI = '00000000-0000-4000-d000-000000000003';
   const CHANDRATAL = '00000000-0000-4000-d000-000000000004';
   const RIVERSIDE = '00000000-0000-4000-d000-000000000005';
@@ -2794,8 +2860,35 @@ describe('discovery ranker', () => {
     );
   });
 
+  it('does not offer a rider a road they have already ridden', async () => {
+    // Sangla–Chitkul is asha's, shared from her own ride. It is the road she
+    // knows best in the seed, which makes it the one road discovery must never
+    // hand back to her — the whole feature answers "where haven't I been".
+    const hers = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    assert.equal(hers.error, null, `discover_routes failed: ${hers.error?.message}`);
+    assert.equal(
+      byId(hers.data)[SANGLA],
+      undefined,
+      'the road she rode and shared is not recommended back to her'
+    );
+    // Vacuity guard. If the exclusion were over-broad — or the region filter
+    // quietly empty — the assertion above would pass while the feature was
+    // dead, which is exactly how an over-tightened filter hides.
+    assert.ok(hers.data.length > 0, 'and the rest of the region is still offered');
+
+    // The same road, to somebody who has not ridden it, is a normal candidate.
+    const theirs = await veer.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    assert.ok(
+      byId(theirs.data)[SANGLA],
+      'while a rider who has never been down it is still shown it'
+    );
+  });
+
   it('ranks a road riders have actually ridden above one nobody has', async () => {
-    const { data } = await asha.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
+    // Asked as veer: the only ridden road in the seed is asha's own, and asha
+    // is now excluded from being recommended it, so she is the one rider who
+    // cannot see a ridden road to compare against.
+    const { data } = await veer.rpc('discover_routes', { p_region: 'Himachal', p_when: july });
     const ridden = data.filter((r) => r.riders_count > 0);
     assert.ok(ridden.length > 0, 'something in the seed has been ridden');
     for (const r of ridden) {
