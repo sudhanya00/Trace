@@ -23,6 +23,23 @@ import { color, font, layout } from '../src/theme/tokens';
  */
 const PHONE_AUTH_ENABLED = false;
 
+/**
+ * Enough of an address check to stop a typo becoming a bounce.
+ *
+ * Every failed signup here is a real send to a real mail provider, and Supabase
+ * restricts a project whose transactional mail bounces too often — so a
+ * mistyped domain costs more than one confused rider.
+ *
+ * Deliberately NOT an attempt at RFC 5322. It rejects only the shapes that
+ * cannot be delivered to at all — no @, no dot in the domain, whitespace — and
+ * passes everything else. Turning away a real address is worse than a bounce,
+ * so when in doubt this says yes.
+ */
+function looksDeliverable(raw: string): boolean {
+  const s = raw.trim();
+  return s.length <= 254 && /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(s);
+}
+
 /** "98765 43210" → "+919876543210"; anything already-international passes through. */
 function normalizePhone(raw: string): string | null {
   const cleaned = raw.replace(/[\s\-()]/g, '');
@@ -89,6 +106,13 @@ export default function Auth() {
         if (error) throw error;
         router.replace('/');
       } else {
+        // Checked on the way up, not on sign-in: an account that already exists
+        // got its address past this once, and refusing it now would lock out a
+        // rider over a rule we added after they joined.
+        if (!looksDeliverable(email)) {
+          showAlert('Check the address', 'That doesn’t look like an address we can send to.');
+          return;
+        }
         const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
         if (error) throw error;
         if (data.session) router.replace('/');
